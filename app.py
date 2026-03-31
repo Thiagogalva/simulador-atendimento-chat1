@@ -1,10 +1,17 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, session
 from spellchecker import SpellChecker
 import re
 import unicodedata
 import time
+import sqlite3
+import uuid
+import json
+from datetime import datetime
 
 app = Flask(__name__)
+app.secret_key = "troque-esta-chave-por-uma-chave-secreta-forte"
+
+DB_NAME = "simulador.db"
 
 spell = SpellChecker(language="pt")
 
@@ -73,13 +80,10 @@ PALAVRAS_EMPATICAS = [
 
 spell.word_frequency.load_words(PALAVRAS_PERMITIDAS)
 
-atendimentos = [
+BASE_ATENDIMENTOS = [
     {
         "id": 0,
         "titulo": "Tarifa / estorno",
-        "mensagens": [
-            {"tipo": "cliente", "texto": "Abri uma contestação sobre um valor cobrado na minha conta e ainda não tive retorno."}
-        ],
         "fluxo": [
             {
                 "cliente": "Abri uma contestação sobre um valor cobrado na minha conta e ainda não tive retorno.",
@@ -105,24 +109,11 @@ atendimentos = [
                 "cliente": "Obrigada.",
                 "resposta_esperada": "De nada. Agradeço o seu contato. Se precisar de mais alguma informação, estou à disposição."
             }
-        ],
-        "etapa_atual": 0,
-        "avaliacoes": [],
-        "total_erros": 0,
-        "total_respostas": 0,
-        "media_coerencia": 0,
-        "media_empatia": 0,
-        "media_tempo": 0,
-        "resposta_esperada": "Entendo a sua situação. Vou te explicar como está o andamento da análise e o prazo previsto para retorno.",
-        "finalizado": False,
-        "ultimo_tempo_backend": None
+        ]
     },
     {
         "id": 1,
         "titulo": "Pix com bloqueio cautelar",
-        "mensagens": [
-            {"tipo": "cliente", "texto": "Preciso que esse bloqueio seja liberado. Estou no banco para sacar meu dinheiro e a transferência foi feita de uma conta minha."}
-        ],
         "fluxo": [
             {
                 "cliente": "Preciso que esse bloqueio seja liberado. Estou no banco para sacar meu dinheiro e a transferência foi feita de uma conta minha.",
@@ -148,24 +139,11 @@ atendimentos = [
                 "cliente": "Obrigada.",
                 "resposta_esperada": "Eu que agradeço. O especialista dará continuidade ao atendimento e seguirá com as orientações do seu caso."
             }
-        ],
-        "etapa_atual": 0,
-        "avaliacoes": [],
-        "total_erros": 0,
-        "total_respostas": 0,
-        "media_coerencia": 0,
-        "media_empatia": 0,
-        "media_tempo": 0,
-        "resposta_esperada": "Entendo a urgência da sua situação. Vou verificar as informações no sistema para te orientar da forma mais clara possível.",
-        "finalizado": False,
-        "ultimo_tempo_backend": None
+        ]
     },
     {
         "id": 2,
         "titulo": "Conta bloqueada / Pix indisponível",
-        "mensagens": [
-            {"tipo": "cliente", "texto": "Não consigo fazer Pix. Está dando erro."}
-        ],
         "fluxo": [
             {
                 "cliente": "Não consigo fazer Pix. Está dando erro.",
@@ -195,19 +173,77 @@ atendimentos = [
                 "cliente": "Ok, só isso.",
                 "resposta_esperada": "Perfeito. A solicitação já foi registrada. Agradeço o seu contato e, se precisar, estamos à disposição."
             }
-        ],
-        "etapa_atual": 0,
-        "avaliacoes": [],
-        "total_erros": 0,
-        "total_respostas": 0,
-        "media_coerencia": 0,
-        "media_empatia": 0,
-        "media_tempo": 0,
-        "resposta_esperada": "Entendi. Vou verificar o que está acontecendo na sua conta. Peço só um momento, por gentileza.",
-        "finalizado": False,
-        "ultimo_tempo_backend": None
+        ]
     }
 ]
+
+
+def get_connection():
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db():
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_uuid TEXT UNIQUE NOT NULL,
+            criado_em TEXT NOT NULL
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS atendimentos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_uuid TEXT NOT NULL,
+            id_publico INTEGER NOT NULL,
+            titulo TEXT NOT NULL,
+            fluxo_json TEXT NOT NULL,
+            etapa_atual INTEGER NOT NULL DEFAULT 0,
+            total_erros INTEGER NOT NULL DEFAULT 0,
+            total_respostas INTEGER NOT NULL DEFAULT 0,
+            media_coerencia REAL NOT NULL DEFAULT 0,
+            media_empatia REAL NOT NULL DEFAULT 0,
+            media_tempo REAL NOT NULL DEFAULT 0,
+            resposta_esperada TEXT NOT NULL,
+            finalizado INTEGER NOT NULL DEFAULT 0,
+            ultimo_tempo_backend REAL,
+            UNIQUE(usuario_uuid, id_publico)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS mensagens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            atendimento_id INTEGER NOT NULL,
+            tipo TEXT NOT NULL,
+            texto TEXT NOT NULL,
+            criado_em TEXT NOT NULL,
+            FOREIGN KEY (atendimento_id) REFERENCES atendimentos (id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS avaliacoes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            atendimento_id INTEGER NOT NULL,
+            erros INTEGER NOT NULL DEFAULT 0,
+            coerencia INTEGER NOT NULL DEFAULT 0,
+            empatia INTEGER NOT NULL DEFAULT 0,
+            tempo INTEGER NOT NULL DEFAULT 0,
+            tempo_segundos REAL NOT NULL DEFAULT 0,
+            avisos_json TEXT NOT NULL DEFAULT '[]',
+            criado_em TEXT NOT NULL,
+            FOREIGN KEY (atendimento_id) REFERENCES atendimentos (id)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
 
 
 def remover_acentos(texto: str) -> str:
@@ -219,6 +255,7 @@ def remover_acentos(texto: str) -> str:
 
 def tokenizar_palavras(texto: str):
     return list(re.finditer(r"\b[^\W\d_]+\b", texto, re.UNICODE))
+
 
 def normalizar_texto(texto: str) -> str:
     texto = texto.lower().strip()
@@ -269,6 +306,7 @@ def pontuar_palavras_criticas(resposta_palavras: set, titulo_atendimento: str) -
 
     proporcao = presentes / len(criticas_normalizadas)
     return int(proporcao * 20)
+
 
 def detectar_erros_linguisticos(texto: str):
     erros = []
@@ -388,6 +426,8 @@ def calcular_coerencia(resposta: str, atendimento: dict) -> int:
     nota = nota_base + bonus_frases + bonus_criticas - penalidade_curta
 
     return max(0, min(100, int(nota)))
+
+
 def avaliar_empatia(resposta: str) -> int:
     resposta_lower = resposta.lower()
     pontos = sum(1 for p in PALAVRAS_EMPATICAS if p in resposta_lower)
@@ -425,8 +465,286 @@ def calcular_nota(at: dict) -> int:
     return max(0, min(100, round(nota)))
 
 
+def garantir_usuario_no_banco(usuario_uuid: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT id FROM usuarios WHERE usuario_uuid = ?",
+        (usuario_uuid,)
+    )
+    usuario = cursor.fetchone()
+
+    if not usuario:
+        cursor.execute(
+            "INSERT INTO usuarios (usuario_uuid, criado_em) VALUES (?, ?)",
+            (usuario_uuid, datetime.now().isoformat())
+        )
+        conn.commit()
+
+    conn.close()
+
+
+def inicializar_atendimentos_usuario(usuario_uuid: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT COUNT(*) AS total FROM atendimentos WHERE usuario_uuid = ?",
+        (usuario_uuid,)
+    )
+    total = cursor.fetchone()["total"]
+
+    if total > 0:
+        conn.close()
+        return
+
+    for item in BASE_ATENDIMENTOS:
+        primeiro_passo = item["fluxo"][0]
+
+        cursor.execute("""
+            INSERT INTO atendimentos (
+                usuario_uuid,
+                id_publico,
+                titulo,
+                fluxo_json,
+                etapa_atual,
+                total_erros,
+                total_respostas,
+                media_coerencia,
+                media_empatia,
+                media_tempo,
+                resposta_esperada,
+                finalizado,
+                ultimo_tempo_backend
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            usuario_uuid,
+            item["id"],
+            item["titulo"],
+            json.dumps(item["fluxo"], ensure_ascii=False),
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            primeiro_passo["resposta_esperada"],
+            0,
+            None
+        ))
+
+        atendimento_db_id = cursor.lastrowid
+
+        cursor.execute("""
+            INSERT INTO mensagens (atendimento_id, tipo, texto, criado_em)
+            VALUES (?, ?, ?, ?)
+        """, (
+            atendimento_db_id,
+            "cliente",
+            primeiro_passo["cliente"],
+            datetime.now().isoformat()
+        ))
+
+    conn.commit()
+    conn.close()
+
+
+@app.before_request
+def garantir_usuario():
+    if "usuario_id" not in session:
+        session["usuario_id"] = str(uuid.uuid4())
+
+    garantir_usuario_no_banco(session["usuario_id"])
+    inicializar_atendimentos_usuario(session["usuario_id"])
+
+
+def buscar_mensagens(cursor, atendimento_db_id: int):
+    cursor.execute("""
+        SELECT tipo, texto
+        FROM mensagens
+        WHERE atendimento_id = ?
+        ORDER BY id
+    """, (atendimento_db_id,))
+    return [{"tipo": row["tipo"], "texto": row["texto"]} for row in cursor.fetchall()]
+
+
+def buscar_avaliacoes(cursor, atendimento_db_id: int):
+    cursor.execute("""
+        SELECT erros, coerencia, empatia, tempo, tempo_segundos, avisos_json
+        FROM avaliacoes
+        WHERE atendimento_id = ?
+        ORDER BY id
+    """, (atendimento_db_id,))
+    avaliacoes = []
+    for row in cursor.fetchall():
+        avaliacoes.append({
+            "erros": row["erros"],
+            "coerencia": row["coerencia"],
+            "empatia": row["empatia"],
+            "tempo": row["tempo"],
+            "tempo_segundos": row["tempo_segundos"],
+            "avisos": json.loads(row["avisos_json"] or "[]")
+        })
+    return avaliacoes
+
+
+def montar_atendimento_dict(row, cursor):
+    atendimento = {
+        "db_id": row["id"],
+        "id": row["id_publico"],
+        "titulo": row["titulo"],
+        "fluxo": json.loads(row["fluxo_json"]),
+        "etapa_atual": row["etapa_atual"],
+        "avaliacoes": buscar_avaliacoes(cursor, row["id"]),
+        "total_erros": row["total_erros"],
+        "total_respostas": row["total_respostas"],
+        "media_coerencia": row["media_coerencia"],
+        "media_empatia": row["media_empatia"],
+        "media_tempo": row["media_tempo"],
+        "resposta_esperada": row["resposta_esperada"],
+        "finalizado": bool(row["finalizado"]),
+        "ultimo_tempo_backend": row["ultimo_tempo_backend"],
+        "mensagens": buscar_mensagens(cursor, row["id"])
+    }
+    return atendimento
+
+
+def listar_atendimentos_usuario(usuario_uuid: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT *
+        FROM atendimentos
+        WHERE usuario_uuid = ?
+        ORDER BY id_publico
+    """, (usuario_uuid,))
+
+    atendimentos = [montar_atendimento_dict(row, cursor) for row in cursor.fetchall()]
+    conn.close()
+    return atendimentos
+
+
+def buscar_atendimento_usuario(usuario_uuid: str, id_publico: int):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT *
+        FROM atendimentos
+        WHERE usuario_uuid = ? AND id_publico = ?
+    """, (usuario_uuid, id_publico))
+
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return None
+
+    atendimento = montar_atendimento_dict(row, cursor)
+    conn.close()
+    return atendimento
+
+
+def salvar_estado_atendimento(at):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE atendimentos
+        SET
+            etapa_atual = ?,
+            total_erros = ?,
+            total_respostas = ?,
+            media_coerencia = ?,
+            media_empatia = ?,
+            media_tempo = ?,
+            resposta_esperada = ?,
+            finalizado = ?,
+            ultimo_tempo_backend = ?
+        WHERE id = ?
+    """, (
+        at["etapa_atual"],
+        at["total_erros"],
+        at["total_respostas"],
+        at["media_coerencia"],
+        at["media_empatia"],
+        at["media_tempo"],
+        at["resposta_esperada"],
+        1 if at["finalizado"] else 0,
+        at["ultimo_tempo_backend"],
+        at["db_id"]
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def adicionar_mensagem(atendimento_db_id: int, tipo: str, texto: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO mensagens (atendimento_id, tipo, texto, criado_em)
+        VALUES (?, ?, ?, ?)
+    """, (atendimento_db_id, tipo, texto, datetime.now().isoformat()))
+
+    conn.commit()
+    conn.close()
+
+
+def adicionar_avaliacao(atendimento_db_id: int, erros: int, coerencia: int, empatia: int, tempo_nota: int,
+                        tempo_segundos: float, avisos: list):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO avaliacoes (
+            atendimento_id, erros, coerencia, empatia, tempo, tempo_segundos, avisos_json, criado_em
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        atendimento_db_id,
+        erros,
+        coerencia,
+        empatia,
+        tempo_nota,
+        tempo_segundos,
+        json.dumps(avisos, ensure_ascii=False),
+        datetime.now().isoformat()
+    ))
+
+    conn.commit()
+    conn.close()
+
+
+def resposta_api_atendimento(at, qtd_erros=0, erros_detalhados=None, avisos=None, tempo_resposta=0):
+    if erros_detalhados is None:
+        erros_detalhados = []
+    if avisos is None:
+        avisos = []
+
+    nota_final = calcular_nota(at)
+
+    return {
+        "mensagens": at["mensagens"],
+        "erros": qtd_erros,
+        "erros_detalhados": erros_detalhados,
+        "avisos": avisos,
+        "total_erros": at["total_erros"],
+        "media_coerencia": at["media_coerencia"],
+        "media_empatia": at["media_empatia"],
+        "media_tempo": at["media_tempo"],
+        "nota": nota_final,
+        "nivel": classificar_nivel(nota_final),
+        "tempo_resposta": tempo_resposta,
+        "sugestao": at["resposta_esperada"],
+        "finalizado": at["finalizado"]
+    }
+
+
 @app.route("/")
 def index():
+    atendimentos = listar_atendimentos_usuario(session["usuario_id"])
     return render_template("chat.html", atendimentos=atendimentos)
 
 
@@ -439,50 +757,33 @@ def responder():
     id_atendimento = data.get("id")
     resposta = (data.get("resposta") or "").strip()
 
-    if id_atendimento is None or id_atendimento < 0 or id_atendimento >= len(atendimentos):
+    if id_atendimento is None:
         return jsonify({"erro": "Atendimento inválido."}), 400
+
+    if not isinstance(id_atendimento, int):
+        try:
+            id_atendimento = int(id_atendimento)
+        except (TypeError, ValueError):
+            return jsonify({"erro": "Atendimento inválido."}), 400
 
     if not resposta:
         return jsonify({"erro": "Resposta vazia."}), 400
 
-    at = atendimentos[id_atendimento]
+    at = buscar_atendimento_usuario(session["usuario_id"], id_atendimento)
+
+    if not at:
+        return jsonify({"erro": "Atendimento inválido."}), 400
 
     if at["finalizado"]:
-        return jsonify({
-            "mensagens": at["mensagens"],
-            "erros": 0,
-            "erros_detalhados": [],
-            "avisos": [],
-            "total_erros": at["total_erros"],
-            "media_coerencia": at["media_coerencia"],
-            "media_empatia": at["media_empatia"],
-            "media_tempo": at["media_tempo"],
-            "nota": calcular_nota(at),
-            "nivel": classificar_nivel(calcular_nota(at)),
-            "tempo_resposta": 0,
-            "sugestao": at["resposta_esperada"],
-            "finalizado": True
-        })
+        return jsonify(resposta_api_atendimento(at, tempo_resposta=0))
 
     etapa = at["etapa_atual"]
 
     if etapa >= len(at["fluxo"]):
         at["finalizado"] = True
-        return jsonify({
-            "mensagens": at["mensagens"],
-            "erros": 0,
-            "erros_detalhados": [],
-            "avisos": [],
-            "total_erros": at["total_erros"],
-            "media_coerencia": at["media_coerencia"],
-            "media_empatia": at["media_empatia"],
-            "media_tempo": at["media_tempo"],
-            "nota": calcular_nota(at),
-            "nivel": classificar_nivel(calcular_nota(at)),
-            "tempo_resposta": 0,
-            "sugestao": at["resposta_esperada"],
-            "finalizado": True
-        })
+        salvar_estado_atendimento(at)
+        at = buscar_atendimento_usuario(session["usuario_id"], id_atendimento)
+        return jsonify(resposta_api_atendimento(at, tempo_resposta=0))
 
     agora = time.time()
     if at["ultimo_tempo_backend"] is None:
@@ -492,6 +793,7 @@ def responder():
 
     at["resposta_esperada"] = at["fluxo"][etapa]["resposta_esperada"]
 
+    adicionar_mensagem(at["db_id"], "operador", resposta)
     at["mensagens"].append({
         "tipo": "operador",
         "texto": resposta
@@ -532,14 +834,25 @@ def responder():
     if not tamanho_ok:
         coerencia = max(0, coerencia - 25)
 
-    at["avaliacoes"].append({
+    avaliacao = {
         "erros": qtd_erros,
         "coerencia": coerencia,
         "empatia": empatia,
         "tempo": nota_tempo,
         "tempo_segundos": tempo_resposta_segundos,
         "avisos": avisos
-    })
+    }
+
+    adicionar_avaliacao(
+        at["db_id"],
+        qtd_erros,
+        coerencia,
+        empatia,
+        nota_tempo,
+        tempo_resposta_segundos,
+        avisos
+    )
+    at["avaliacoes"].append(avaliacao)
 
     at["total_erros"] += qtd_erros
     at["total_respostas"] += 1
@@ -551,6 +864,7 @@ def responder():
 
     if at["etapa_atual"] < len(at["fluxo"]):
         proxima_msg = at["fluxo"][at["etapa_atual"]]["cliente"]
+        adicionar_mensagem(at["db_id"], "cliente", proxima_msg)
         at["mensagens"].append({
             "tipo": "cliente",
             "texto": proxima_msg
@@ -560,23 +874,21 @@ def responder():
     else:
         at["finalizado"] = True
 
-    nota_final = calcular_nota(at)
+    salvar_estado_atendimento(at)
 
-    return jsonify({
-        "mensagens": at["mensagens"],
-        "erros": qtd_erros,
-        "erros_detalhados": erros,
-        "avisos": avisos,
-        "total_erros": at["total_erros"],
-        "media_coerencia": at["media_coerencia"],
-        "media_empatia": at["media_empatia"],
-        "media_tempo": at["media_tempo"],
-        "nota": nota_final,
-        "nivel": classificar_nivel(nota_final),
-        "tempo_resposta": tempo_resposta_segundos,
-        "sugestao": at["resposta_esperada"],
-        "finalizado": at["finalizado"]
-    })
+    at = buscar_atendimento_usuario(session["usuario_id"], id_atendimento)
+
+    return jsonify(resposta_api_atendimento(
+        at,
+        qtd_erros=qtd_erros,
+        erros_detalhados=erros,
+        avisos=avisos,
+        tempo_resposta=tempo_resposta_segundos
+    ))
+
 
 if __name__ == "__main__":
+    init_db()
     app.run(host="0.0.0.0", port=5000, debug=True)
+else:
+    init_db()
