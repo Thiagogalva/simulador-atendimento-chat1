@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulador</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div class="container">
+
+    <aside class="sidebar">
+        <h3>Atendimentos</h3>
+
+        {% for at in atendimentos %}
+        <div class="chat-item" id="chat-item-{{ at.id }}" onclick="selecionar({{ at.id }})">
+            <span class="chat-label">Cliente {{ at.id + 1 }} - {{ at.titulo }}</span>
+            <span id="timer-{{ at.id }}" class="timer">0s</span>
+        </div>
+        {% endfor %}
+    </aside>
+
+    <main class="chat-area">
+        <div class="messages" id="messages"></div>
+
+        <div class="painel-metricas" id="painel-metricas">
+            <span>Coerência: <b id="m-coerencia">0</b></span>
+            <span>Empatia: <b id="m-empatia">0</b></span>
+            <span>Tempo: <b id="m-tempo">0</b></span>
+            <span>Nota: <b id="m-nota">0</b></span>
+            <span>Nível: <b id="m-nivel">-</b></span>
+        </div>
+
+        <div
+            class="sugestao-box"
+            id="sugestao"
+            oncopy="return false"
+            oncut="return false"
+            onpaste="return false">
+        </div>
+
+        <div class="input-area">
+            <textarea id="resposta" placeholder="Digite sua resposta..."></textarea>
+            <button type="button" onclick="enviar()">Enviar</button>
+        </div>
+    </main>
+
+</div>
+
+<script>
+let atual = 0;
+let dados = {{ atendimentos | tojson }};
+const TEMPO_LIMITE = 50;
+
+dados.forEach(at => {
+    at.iniciado = false;
+    at.ultimoTempo = 0;
+    at.finalizado = at.finalizado || false;
+    at.total_erros = at.total_erros || 0;
+    at.media_coerencia = at.media_coerencia || 0;
+    at.media_empatia = at.media_empatia || 0;
+    at.media_tempo = at.media_tempo || 0;
+    at.nota = at.nota || 0;
+    at.nivel = at.nivel || "-";
+});
+
+function destacarErros(texto, erros) {
+    if (!erros || erros.length === 0) return texto;
+
+    const errosOrdenados = [...erros].sort((a, b) => a.offset - b.offset);
+
+    let resultado = "";
+    let cursor = 0;
+
+    errosOrdenados.forEach(e => {
+        if (e.offset < cursor) return;
+
+        resultado += texto.substring(cursor, e.offset);
+        const trecho = texto.substring(e.offset, e.offset + e.length);
+        resultado += `<span class="erro">${trecho}</span>`;
+        cursor = e.offset + e.length;
+    });
+
+    resultado += texto.substring(cursor);
+    return resultado;
+}
+
+function atualizarPainel() {
+    const at = dados[atual];
+    document.getElementById("m-coerencia").innerText = Number(at.media_coerencia || 0).toFixed(1);
+    document.getElementById("m-empatia").innerText = Number(at.media_empatia || 0).toFixed(1);
+    document.getElementById("m-tempo").innerText = Number(at.media_tempo || 0).toFixed(1);
+    document.getElementById("m-nota").innerText = Number(at.nota || 0).toFixed(1);
+    document.getElementById("m-nivel").innerText = at.nivel || "-";
+}
+
+function renderMensagens() {
+    const at = dados[atual];
+    const box = document.getElementById("messages");
+
+    box.innerHTML = "";
+
+    at.mensagens.forEach(msg => {
+        const div = document.createElement("div");
+        div.className = msg.tipo === "cliente" ? "msg-cliente" : "msg-operador";
+
+        if (msg.tipo === "operador") {
+            let conteudo = msg.texto;
+
+            if (msg.erros && msg.erros.length > 0) {
+                conteudo = destacarErros(msg.texto, msg.erros);
+            }
+
+            let avisosHtml = "";
+            if (msg.avisos && msg.avisos.length > 0) {
+                avisosHtml = `<div class="mensagem-erro-info">${msg.avisos.join(" ")}</div>`;
+            }
+
+            div.innerHTML = conteudo + avisosHtml;
+        } else {
+            div.innerText = msg.texto;
+        }
+
+        box.appendChild(div);
+    });
+
+    box.scrollTop = box.scrollHeight;
+    atualizarPainel();
+}
+
+function selecionar(id) {
+    atual = id;
+    const at = dados[id];
+
+    if (!at.iniciado) {
+        at.iniciado = true;
+        at.ultimoTempo = Date.now() / 1000;
+    }
+
+    document.querySelectorAll(".chat-item").forEach(item => {
+        item.classList.remove("ativo");
+    });
+
+    const itemAtual = document.getElementById("chat-item-" + id);
+    if (itemAtual) {
+        itemAtual.classList.add("ativo");
+    }
+
+    renderMensagens();
+
+    document.getElementById("sugestao").innerText =
+        "Sugestão: " + (dados[id].resposta_esperada || "");
+}
+
+function encontrarUltimaMensagemOperador(mensagens) {
+    for (let i = mensagens.length - 1; i >= 0; i--) {
+        if (mensagens[i].tipo === "operador") {
+            return i;
+        }
+    }
+    return -1;
+}
+
+function enviar() {
+    const at = dados[atual];
+
+    if (at.finalizado) return;
+
+    const campo = document.getElementById("resposta");
+    const texto = campo.value.trim();
+
+    if (!texto) return;
+
+    fetch("/responder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: atual, resposta: texto })
+    })
+    .then(async r => {
+        if (!r.ok) {
+            const erroTexto = await r.text();
+            throw new Error(erroTexto || "Erro ao responder atendimento.");
+        }
+        return r.json();
+    })
+    .then(data => {
+        dados[atual].mensagens = data.mensagens;
+
+        const idxOperador = encontrarUltimaMensagemOperador(dados[atual].mensagens);
+        if (idxOperador !== -1) {
+            dados[atual].mensagens[idxOperador].erros = data.erros_detalhados || [];
+            dados[atual].mensagens[idxOperador].avisos = data.avisos || [];
+        }
+
+        dados[atual].total_erros = data.total_erros || 0;
+        dados[atual].media_coerencia = data.media_coerencia || 0;
+        dados[atual].media_empatia = data.media_empatia || 0;
+        dados[atual].media_tempo = data.media_tempo || 0;
+        dados[atual].nota = data.nota || 0;
+        dados[atual].nivel = data.nivel || "-";
+        dados[atual].finalizado = data.finalizado || false;
+        dados[atual].ultimoTempo = Date.now() / 1000;
+
+        if (data.sugestao) {
+            dados[atual].resposta_esperada = data.sugestao;
+        }
+
+        renderMensagens();
+        campo.value = "";
+
+        document.getElementById("sugestao").innerText =
+            "Sugestão: " + (data.sugestao || "");
+
+        if (verificarFinalizacaoGeral()) {
+            mostrarTelaFinal();
+        }
+    })
+    .catch(error => {
+        console.error("Erro no envio:", error);
+        alert("O atendimento não respondeu. Verifique o app.py ou o terminal do Flask.");
+    });
+}
+
+document.getElementById("resposta").addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        enviar();
+    }
+});
+
+const campoResposta = document.getElementById("resposta");
+const sugestaoBox = document.getElementById("sugestao");
+
+campoResposta.addEventListener("paste", function(e) {
+    e.preventDefault();
+    alert("Não é permitido colar a resposta. Digite manualmente.");
+});
+
+["copy", "cut", "paste", "contextmenu", "mousedown", "selectstart", "dragstart"].forEach(evento => {
+    sugestaoBox.addEventListener(evento, function(e) {
+        e.preventDefault();
+    });
+});
+
+function verificarFinalizacaoGeral() {
+    return dados.every(at => at.finalizado);
+}
+
+function mostrarTelaFinal() {
+    const total = dados.length;
+    const somaNotas = dados.reduce((s, at) => s + (at.nota || 0), 0);
+    const totalErros = dados.reduce((s, at) => s + (at.total_erros || 0), 0);
+
+    const mediaGeral = total > 0 ? (somaNotas / total).toFixed(1) : "0.0";
+
+    const mediaCoerencia = total > 0
+        ? (dados.reduce((s, at) => s + (at.media_coerencia || 0), 0) / total).toFixed(1)
+        : "0.0";
+
+    const mediaEmpatia = total > 0
+        ? (dados.reduce((s, at) => s + (at.media_empatia || 0), 0) / total).toFixed(1)
+        : "0.0";
+
+    const mediaTempo = total > 0
+        ? (dados.reduce((s, at) => s + (at.media_tempo || 0), 0) / total).toFixed(1)
+        : "0.0";
+
+    const classificacao = classificarGeral(mediaGeral);
+
+    const cardsAtendimentos = dados.map(at => `
+        <div class="resultado-card">
+            <h3>Cliente ${at.id + 1} - ${at.titulo}</h3>
+            <p><b>Nota:</b> ${Number(at.nota || 0).toFixed(1)}</p>
+            <p><b>Coerência:</b> ${Number(at.media_coerencia || 0).toFixed(1)}</p>
+            <p><b>Empatia:</b> ${Number(at.media_empatia || 0).toFixed(1)}</p>
+            <p><b>Tempo:</b> ${Number(at.media_tempo || 0).toFixed(1)}</p>
+            <p><b>Erros:</b> ${at.total_erros || 0}</p>
+            <p><b>Nível:</b> ${at.nivel || "-"}</p>
+        </div>
+    `).join("");
+
+    document.querySelector(".container").innerHTML = `
+        <div class="resultado-final">
+            <div class="resultado-final-box">
+                <h1>Resultado Final</h1>
+
+                <div class="resultado-resumo">
+                    <div class="resultado-destaque">
+                        <span class="resultado-titulo">Média Geral</span>
+                        <span class="resultado-valor">${mediaGeral}</span>
+                    </div>
+
+                    <div class="resultado-badges">
+                        <span class="badge-resultado">Coerência: ${mediaCoerencia}</span>
+                        <span class="badge-resultado">Empatia: ${mediaEmpatia}</span>
+                        <span class="badge-resultado">Tempo: ${mediaTempo}</span>
+                        <span class="badge-resultado">Erros: ${totalErros}</span>
+                        <span class="badge-resultado destaque-nivel">Classificação: ${classificacao}</span>
+                    </div>
+                </div>
+
+                <div class="resultado-grid">
+                    ${cardsAtendimentos}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function classificarGeral(media) {
+    const nota = Number(media);
+    if (nota >= 90) return "Especialista";
+    if (nota >= 75) return "Bom";
+    if (nota >= 60) return "Intermediário";
+    return "Iniciante";
+}
+
+function atualizarTimers() {
+    dados.forEach(at => {
+        if (!at.iniciado || at.finalizado) return;
+
+        const tempo = Math.floor((Date.now() / 1000) - at.ultimoTempo);
+        const p = tempo / TEMPO_LIMITE;
+
+        const el = document.getElementById("timer-" + at.id);
+        if (!el) return;
+
+        el.innerText = tempo + "s";
+        el.className = "timer";
+
+        if (p >= 1) {
+            el.classList.add("vermelho");
+            at.finalizado = true;
+
+            if (verificarFinalizacaoGeral()) {
+                mostrarTelaFinal();
+            }
+        } else if (p >= 0.75) {
+            el.classList.add("vermelho");
+        } else if (p >= 0.5) {
+            el.classList.add("amarelo");
+        } else {
+            el.classList.add("verde");
+        }
+    });
+}
+
+setInterval(atualizarTimers, 1000);
+window.onload = () => selecionar(0);
+</script>
+
+</body>
+</html>
