@@ -16,7 +16,7 @@
         {% for at in atendimentos %}
         <div class="chat-item" id="chat-item-{{ at.id }}" onclick="selecionar({{ at.id }})">
             <span class="chat-label">Cliente {{ at.id + 1 }} - {{ at.titulo }}</span>
-            <span id="timer-{{ at.id }}" class="timer">0s</span>
+            <span id="timer-{{ at.id }}" class="timer">Aguardando</span>
         </div>
         {% endfor %}
     </aside>
@@ -49,24 +49,63 @@
 </div>
 
 <script>
-let atual = 0;
 let dados = {{ atendimentos | tojson }};
-const TEMPO_LIMITE = 50;
+let atual = dados.length > 0 ? dados[0].id : 0;
 
-dados.forEach(at => {
-    at.iniciado = false;
-    at.ultimoTempo = 0;
-    at.finalizado = at.finalizado || false;
-    at.total_erros = at.total_erros || 0;
-    at.media_coerencia = at.media_coerencia || 0;
-    at.media_empatia = at.media_empatia || 0;
-    at.media_tempo = at.media_tempo || 0;
-    at.nota = at.nota || 0;
-    at.nivel = at.nivel || "-";
-});
+const TEMPO_LIMITE = {{ tempo_limite_chat | tojson }};
+const INTERVALO_ENTRE_CHATS = {{ intervalo_entre_chats | tojson }};
+let simulacaoIniciadaEm = {{ simulacao_iniciada_em | tojson }};
+let telaFinalMostrada = false;
+
+function prepararDadosIniciais() {
+    dados = dados.sort((a, b) => a.id - b.id);
+
+    dados.forEach((at, index) => {
+        at.finalizado = Boolean(at.finalizado);
+        at.bloqueado_tempo = Boolean(at.bloqueado_tempo);
+        at.total_erros = Number(at.total_erros || 0);
+        at.media_coerencia = Number(at.media_coerencia || 0);
+        at.media_empatia = Number(at.media_empatia || 0);
+        at.media_tempo = Number(at.media_tempo || 0);
+        at.nota = Number(at.nota || calcularNotaLocal(at));
+        at.nivel = at.nivel || classificarGeral(at.nota);
+        at.mensagens = at.mensagens || [];
+        at.resposta_esperada = at.resposta_esperada || "";
+
+        at.liberadoEm = Number(
+            at.liberado_em !== undefined && at.liberado_em !== null
+                ? at.liberado_em
+                : simulacaoIniciadaEm + (index * INTERVALO_ENTRE_CHATS)
+        );
+
+        at.iniciado = (Date.now() / 1000) >= at.liberadoEm;
+
+        if (at.ultimo_tempo_backend !== undefined && at.ultimo_tempo_backend !== null) {
+            at.ultimoTempo = Number(at.ultimo_tempo_backend);
+        } else {
+            at.ultimoTempo = at.liberadoEm;
+        }
+    });
+}
+
+function calcularNotaLocal(at) {
+    const base = Number(at.media_coerencia || 0);
+    const bonusEmpatia = Number(at.media_empatia || 0);
+    const bonusTempo = Number(at.media_tempo || 0);
+    const penalidadeErros = Number(at.total_erros || 0) * 5;
+
+    const nota = base + bonusEmpatia + bonusTempo - penalidadeErros;
+    return Math.max(0, Math.min(100, Number(nota.toFixed(1))));
+}
+
+function escaparHtml(texto) {
+    const div = document.createElement("div");
+    div.innerText = texto;
+    return div.innerHTML;
+}
 
 function destacarErros(texto, erros) {
-    if (!erros || erros.length === 0) return texto;
+    if (!erros || erros.length === 0) return escaparHtml(texto);
 
     const errosOrdenados = [...erros].sort((a, b) => a.offset - b.offset);
 
@@ -76,18 +115,24 @@ function destacarErros(texto, erros) {
     errosOrdenados.forEach(e => {
         if (e.offset < cursor) return;
 
-        resultado += texto.substring(cursor, e.offset);
+        resultado += escaparHtml(texto.substring(cursor, e.offset));
         const trecho = texto.substring(e.offset, e.offset + e.length);
-        resultado += `<span class="erro">${trecho}</span>`;
+        resultado += `<span class="erro">${escaparHtml(trecho)}</span>`;
         cursor = e.offset + e.length;
     });
 
-    resultado += texto.substring(cursor);
+    resultado += escaparHtml(texto.substring(cursor));
     return resultado;
 }
 
+function buscarAtendimentoPorId(id) {
+    return dados.find(item => item.id === id);
+}
+
 function atualizarPainel() {
-    const at = dados[atual];
+    const at = buscarAtendimentoPorId(atual);
+    if (!at) return;
+
     document.getElementById("m-coerencia").innerText = Number(at.media_coerencia || 0).toFixed(1);
     document.getElementById("m-empatia").innerText = Number(at.media_empatia || 0).toFixed(1);
     document.getElementById("m-tempo").innerText = Number(at.media_tempo || 0).toFixed(1);
@@ -96,9 +141,10 @@ function atualizarPainel() {
 }
 
 function renderMensagens() {
-    const at = dados[atual];
-    const box = document.getElementById("messages");
+    const at = buscarAtendimentoPorId(atual);
+    if (!at) return;
 
+    const box = document.getElementById("messages");
     box.innerHTML = "";
 
     at.mensagens.forEach(msg => {
@@ -110,11 +156,13 @@ function renderMensagens() {
 
             if (msg.erros && msg.erros.length > 0) {
                 conteudo = destacarErros(msg.texto, msg.erros);
+            } else {
+                conteudo = escaparHtml(msg.texto);
             }
 
             let avisosHtml = "";
             if (msg.avisos && msg.avisos.length > 0) {
-                avisosHtml = `<div class="mensagem-erro-info">${msg.avisos.join(" ")}</div>`;
+                avisosHtml = `<div class="mensagem-erro-info">${msg.avisos.map(escaparHtml).join(" ")}</div>`;
             }
 
             div.innerHTML = conteudo + avisosHtml;
@@ -127,16 +175,77 @@ function renderMensagens() {
 
     box.scrollTop = box.scrollHeight;
     atualizarPainel();
+    atualizarEstadoCampo();
+}
+
+function chatJaFoiLiberado(at) {
+    const agora = Date.now() / 1000;
+    return agora >= at.liberadoEm;
+}
+
+function tempoDecorridoNoTurno(at) {
+    const agora = Date.now() / 1000;
+    return Math.max(0, Math.floor(agora - at.ultimoTempo));
+}
+
+function turnoExpirado(at) {
+    if (at.finalizado) return false;
+    if (!chatJaFoiLiberado(at)) return false;
+    return tempoDecorridoNoTurno(at) >= TEMPO_LIMITE;
+}
+
+function atendimentoEncerrado(at) {
+    return at.finalizado || at.bloqueado_tempo || turnoExpirado(at);
+}
+
+function verificarFinalizacaoGeral() {
+    const algumChatLiberado = dados.some(at => chatJaFoiLiberado(at));
+    if (!algumChatLiberado) return false;
+
+    return dados.every(at => atendimentoEncerrado(at));
+}
+
+function atualizarEstadoCampo() {
+    const at = buscarAtendimentoPorId(atual);
+    const campo = document.getElementById("resposta");
+    const botao = document.querySelector(".input-area button");
+
+    if (!at) return;
+
+    if (at.finalizado) {
+        campo.disabled = true;
+        botao.disabled = true;
+        campo.placeholder = "Este atendimento foi finalizado.";
+        return;
+    }
+
+    if (!chatJaFoiLiberado(at)) {
+        campo.disabled = true;
+        botao.disabled = true;
+        campo.placeholder = "Este atendimento ainda não iniciou.";
+        return;
+    }
+
+    if (turnoExpirado(at)) {
+        at.bloqueado_tempo = true;
+    }
+
+    if (at.bloqueado_tempo) {
+        campo.disabled = true;
+        botao.disabled = true;
+        campo.placeholder = "Tempo esgotado para este atendimento.";
+        return;
+    }
+
+    campo.disabled = false;
+    botao.disabled = false;
+    campo.placeholder = "Digite sua resposta...";
 }
 
 function selecionar(id) {
     atual = id;
-    const at = dados[id];
-
-    if (!at.iniciado) {
-        at.iniciado = true;
-        at.ultimoTempo = Date.now() / 1000;
-    }
+    const at = buscarAtendimentoPorId(id);
+    if (!at) return;
 
     document.querySelectorAll(".chat-item").forEach(item => {
         item.classList.remove("ativo");
@@ -150,7 +259,7 @@ function selecionar(id) {
     renderMensagens();
 
     document.getElementById("sugestao").innerText =
-        "Sugestão: " + (dados[id].resposta_esperada || "");
+        "Sugestão: " + (at.resposta_esperada || "");
 }
 
 function encontrarUltimaMensagemOperador(mensagens) {
@@ -163,9 +272,11 @@ function encontrarUltimaMensagemOperador(mensagens) {
 }
 
 function enviar() {
-    const at = dados[atual];
+    const at = buscarAtendimentoPorId(atual);
 
-    if (at.finalizado) return;
+    if (!at || at.finalizado) return;
+    if (!chatJaFoiLiberado(at)) return;
+    if (at.bloqueado_tempo || turnoExpirado(at)) return;
 
     const campo = document.getElementById("resposta");
     const texto = campo.value.trim();
@@ -175,42 +286,64 @@ function enviar() {
     fetch("/responder", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: atual, resposta: texto })
+        body: JSON.stringify({ id: at.id, resposta: texto })
     })
     .then(async r => {
         if (!r.ok) {
-            const erroTexto = await r.text();
-            throw new Error(erroTexto || "Erro ao responder atendimento.");
+            let mensagem = "Erro ao responder atendimento.";
+            try {
+                const erroJson = await r.json();
+                if (erroJson && erroJson.erro) {
+                    mensagem = erroJson.erro;
+                }
+            } catch (e) {
+                const erroTexto = await r.text();
+                if (erroTexto) {
+                    mensagem = erroTexto;
+                }
+            }
+            throw new Error(mensagem);
         }
         return r.json();
     })
     .then(data => {
-        dados[atual].mensagens = data.mensagens;
+        at.mensagens = data.mensagens || [];
 
-        const idxOperador = encontrarUltimaMensagemOperador(dados[atual].mensagens);
+        const idxOperador = encontrarUltimaMensagemOperador(at.mensagens);
         if (idxOperador !== -1) {
-            dados[atual].mensagens[idxOperador].erros = data.erros_detalhados || [];
-            dados[atual].mensagens[idxOperador].avisos = data.avisos || [];
+            at.mensagens[idxOperador].erros = data.erros_detalhados || [];
+            at.mensagens[idxOperador].avisos = data.avisos || [];
         }
 
-        dados[atual].total_erros = data.total_erros || 0;
-        dados[atual].media_coerencia = data.media_coerencia || 0;
-        dados[atual].media_empatia = data.media_empatia || 0;
-        dados[atual].media_tempo = data.media_tempo || 0;
-        dados[atual].nota = data.nota || 0;
-        dados[atual].nivel = data.nivel || "-";
-        dados[atual].finalizado = data.finalizado || false;
-        dados[atual].ultimoTempo = Date.now() / 1000;
+        at.total_erros = Number(data.total_erros || 0);
+        at.media_coerencia = Number(data.media_coerencia || 0);
+        at.media_empatia = Number(data.media_empatia || 0);
+        at.media_tempo = Number(data.media_tempo || 0);
+        at.nota = Number(data.nota || 0);
+        at.nivel = data.nivel || "-";
+        at.finalizado = Boolean(data.finalizado);
+        at.bloqueado_tempo = Boolean(data.bloqueado_tempo);
+
+        if (data.liberado_em !== undefined && data.liberado_em !== null) {
+            at.liberadoEm = Number(data.liberado_em);
+        }
 
         if (data.sugestao) {
-            dados[atual].resposta_esperada = data.sugestao;
+            at.resposta_esperada = data.sugestao;
+        }
+
+        if (!at.finalizado) {
+            at.ultimoTempo = Date.now() / 1000;
         }
 
         renderMensagens();
         campo.value = "";
+        campo.focus();
 
         document.getElementById("sugestao").innerText =
             "Sugestão: " + (data.sugestao || "");
+
+        atualizarBadgeAtendimento(at);
 
         if (verificarFinalizacaoGeral()) {
             mostrarTelaFinal();
@@ -218,67 +351,76 @@ function enviar() {
     })
     .catch(error => {
         console.error("Erro no envio:", error);
-        alert("O atendimento não respondeu. Verifique o app.py ou o terminal do Flask.");
+        alert(error.message || "O atendimento não respondeu. Verifique o app.py ou o terminal do Flask.");
+        atualizarEstadoCampo();
     });
 }
 
-document.getElementById("resposta").addEventListener("keydown", e => {
-    if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        enviar();
+function atualizarBadgeAtendimento(at) {
+    const el = document.getElementById("timer-" + at.id);
+    if (!el) return;
+
+    if (at.finalizado) {
+        el.innerText = "Finalizado";
+        el.className = "timer verde";
+        return;
     }
-});
 
-const campoResposta = document.getElementById("resposta");
-const sugestaoBox = document.getElementById("sugestao");
+    if (at.bloqueado_tempo) {
+        el.innerText = "Tempo esgotado";
+        el.className = "timer vermelho";
+    }
+}
 
-campoResposta.addEventListener("paste", function(e) {
-    e.preventDefault();
-    alert("Não é permitido colar a resposta. Digite manualmente.");
-});
-
-["copy", "cut", "paste", "contextmenu", "mousedown", "selectstart", "dragstart"].forEach(evento => {
-    sugestaoBox.addEventListener(evento, function(e) {
-        e.preventDefault();
-    });
-});
-
-function verificarFinalizacaoGeral() {
-    return dados.every(at => at.finalizado);
+function iniciarNovaSimulacao() {
+    window.location.href = "/";
 }
 
 function mostrarTelaFinal() {
+    if (telaFinalMostrada) return;
+    if (!verificarFinalizacaoGeral()) return;
+
+    telaFinalMostrada = true;
+
     const total = dados.length;
-    const somaNotas = dados.reduce((s, at) => s + (at.nota || 0), 0);
-    const totalErros = dados.reduce((s, at) => s + (at.total_erros || 0), 0);
+    const somaNotas = dados.reduce((s, at) => s + Number(at.nota || 0), 0);
+    const totalErros = dados.reduce((s, at) => s + Number(at.total_erros || 0), 0);
 
     const mediaGeral = total > 0 ? (somaNotas / total).toFixed(1) : "0.0";
 
     const mediaCoerencia = total > 0
-        ? (dados.reduce((s, at) => s + (at.media_coerencia || 0), 0) / total).toFixed(1)
+        ? (dados.reduce((s, at) => s + Number(at.media_coerencia || 0), 0) / total).toFixed(1)
         : "0.0";
 
     const mediaEmpatia = total > 0
-        ? (dados.reduce((s, at) => s + (at.media_empatia || 0), 0) / total).toFixed(1)
+        ? (dados.reduce((s, at) => s + Number(at.media_empatia || 0), 0) / total).toFixed(1)
         : "0.0";
 
     const mediaTempo = total > 0
-        ? (dados.reduce((s, at) => s + (at.media_tempo || 0), 0) / total).toFixed(1)
+        ? (dados.reduce((s, at) => s + Number(at.media_tempo || 0), 0) / total).toFixed(1)
         : "0.0";
 
     const classificacao = classificarGeral(mediaGeral);
 
-    const cardsAtendimentos = dados.map(at => `
-        <div class="resultado-card">
-            <h3>Cliente ${at.id + 1} - ${at.titulo}</h3>
-            <p><b>Nota:</b> ${Number(at.nota || 0).toFixed(1)}</p>
-            <p><b>Coerência:</b> ${Number(at.media_coerencia || 0).toFixed(1)}</p>
-            <p><b>Empatia:</b> ${Number(at.media_empatia || 0).toFixed(1)}</p>
-            <p><b>Tempo:</b> ${Number(at.media_tempo || 0).toFixed(1)}</p>
-            <p><b>Erros:</b> ${at.total_erros || 0}</p>
-            <p><b>Nível:</b> ${at.nivel || "-"}</p>
-        </div>
-    `).join("");
+    const cardsAtendimentos = dados.map(at => {
+        let status = "Finalizado";
+        if (at.bloqueado_tempo && !at.finalizado) {
+            status = "Encerrado por tempo";
+        }
+
+        return `
+            <div class="resultado-card">
+                <h3>Cliente ${at.id + 1} - ${escaparHtml(at.titulo)}</h3>
+                <p><b>Status:</b> ${escaparHtml(status)}</p>
+                <p><b>Nota:</b> ${Number(at.nota || 0).toFixed(1)}</p>
+                <p><b>Coerência:</b> ${Number(at.media_coerencia || 0).toFixed(1)}</p>
+                <p><b>Empatia:</b> ${Number(at.media_empatia || 0).toFixed(1)}</p>
+                <p><b>Tempo:</b> ${Number(at.media_tempo || 0).toFixed(1)}</p>
+                <p><b>Erros:</b> ${Number(at.total_erros || 0)}</p>
+                <p><b>Nível:</b> ${escaparHtml(at.nivel || "-")}</p>
+            </div>
+        `;
+    }).join("");
 
     document.querySelector(".container").innerHTML = `
         <div class="resultado-final">
@@ -303,6 +445,12 @@ function mostrarTelaFinal() {
                 <div class="resultado-grid">
                     ${cardsAtendimentos}
                 </div>
+
+                <div class="resultado-acoes">
+                    <button type="button" class="botao-nova-simulacao" onclick="iniciarNovaSimulacao()">
+                        Nova simulação
+                    </button>
+                </div>
             </div>
         </div>
     `;
@@ -317,37 +465,77 @@ function classificarGeral(media) {
 }
 
 function atualizarTimers() {
+    const agora = Date.now() / 1000;
+
     dados.forEach(at => {
-        if (!at.iniciado || at.finalizado) return;
-
-        const tempo = Math.floor((Date.now() / 1000) - at.ultimoTempo);
-        const p = tempo / TEMPO_LIMITE;
-
         const el = document.getElementById("timer-" + at.id);
         if (!el) return;
 
-        el.innerText = tempo + "s";
+        if (at.finalizado) {
+            el.innerText = "Finalizado";
+            el.className = "timer verde";
+            return;
+        }
+
+        if (agora < at.liberadoEm) {
+            const restante = Math.ceil(at.liberadoEm - agora);
+            el.innerText = "Inicia em " + restante + "s";
+            el.className = "timer";
+            return;
+        }
+
+        at.iniciado = true;
+
+        const tempo = Math.floor(agora - at.ultimoTempo);
+        const p = tempo / TEMPO_LIMITE;
+
         el.className = "timer";
 
         if (p >= 1) {
+            el.innerText = "Tempo esgotado";
             el.classList.add("vermelho");
-            at.finalizado = true;
-
-            if (verificarFinalizacaoGeral()) {
-                mostrarTelaFinal();
-            }
+            at.bloqueado_tempo = true;
         } else if (p >= 0.75) {
+            el.innerText = tempo + "s";
             el.classList.add("vermelho");
         } else if (p >= 0.5) {
+            el.innerText = tempo + "s";
             el.classList.add("amarelo");
         } else {
+            el.innerText = tempo + "s";
             el.classList.add("verde");
         }
     });
+
+    atualizarEstadoCampo();
+
+    if (verificarFinalizacaoGeral()) {
+        mostrarTelaFinal();
+    }
 }
 
+document.addEventListener("DOMContentLoaded", () => {
+    const input = document.getElementById("resposta");
+
+    if (!input) return;
+
+    input.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            enviar();
+        }
+    });
+});
+
+prepararDadosIniciais();
 setInterval(atualizarTimers, 1000);
-window.onload = () => selecionar(0);
+
+window.onload = () => {
+    if (dados.length > 0) {
+        selecionar(dados[0].id);
+        atualizarTimers();
+    }
+};
 </script>
 
 </body>

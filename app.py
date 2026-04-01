@@ -12,6 +12,8 @@ app = Flask(__name__)
 app.secret_key = "troque-esta-chave-por-uma-chave-secreta-forte"
 
 DB_NAME = "simulador.db"
+TEMPO_LIMITE_CHAT = 50
+INTERVALO_ENTRE_CHATS = 50
 
 spell = SpellChecker(language="pt")
 
@@ -211,6 +213,7 @@ def init_db():
             media_tempo REAL NOT NULL DEFAULT 0,
             resposta_esperada TEXT NOT NULL,
             finalizado INTEGER NOT NULL DEFAULT 0,
+            bloqueado_tempo INTEGER NOT NULL DEFAULT 0,
             ultimo_tempo_backend REAL,
             UNIQUE(usuario_uuid, id_publico)
         )
@@ -485,19 +488,26 @@ def garantir_usuario_no_banco(usuario_uuid: str):
     conn.close()
 
 
-def inicializar_atendimentos_usuario(usuario_uuid: str):
+def limpar_simulacao_usuario(usuario_uuid: str):
     conn = get_connection()
     cursor = conn.cursor()
 
-    cursor.execute(
-        "SELECT COUNT(*) AS total FROM atendimentos WHERE usuario_uuid = ?",
-        (usuario_uuid,)
-    )
-    total = cursor.fetchone()["total"]
+    cursor.execute("SELECT id FROM atendimentos WHERE usuario_uuid = ?", (usuario_uuid,))
+    atendimentos_ids = [row["id"] for row in cursor.fetchall()]
 
-    if total > 0:
-        conn.close()
-        return
+    for atendimento_id in atendimentos_ids:
+        cursor.execute("DELETE FROM mensagens WHERE atendimento_id = ?", (atendimento_id,))
+        cursor.execute("DELETE FROM avaliacoes WHERE atendimento_id = ?", (atendimento_id,))
+
+    cursor.execute("DELETE FROM atendimentos WHERE usuario_uuid = ?", (usuario_uuid,))
+
+    conn.commit()
+    conn.close()
+
+
+def inicializar_atendimentos_usuario(usuario_uuid: str):
+    conn = get_connection()
+    cursor = conn.cursor()
 
     for item in BASE_ATENDIMENTOS:
         primeiro_passo = item["fluxo"][0]
@@ -516,8 +526,9 @@ def inicializar_atendimentos_usuario(usuario_uuid: str):
                 media_tempo,
                 resposta_esperada,
                 finalizado,
+                bloqueado_tempo,
                 ultimo_tempo_backend
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             usuario_uuid,
             item["id"],
@@ -530,6 +541,7 @@ def inicializar_atendimentos_usuario(usuario_uuid: str):
             0,
             0,
             primeiro_passo["resposta_esperada"],
+            0,
             0,
             None
         ))
@@ -550,13 +562,16 @@ def inicializar_atendimentos_usuario(usuario_uuid: str):
     conn.close()
 
 
+def reiniciar_simulacao():
+    session["simulacao_iniciada_em"] = time.time()
+
+
 @app.before_request
 def garantir_usuario():
     if "usuario_id" not in session:
         session["usuario_id"] = str(uuid.uuid4())
 
     garantir_usuario_no_banco(session["usuario_id"])
-    inicializar_atendimentos_usuario(session["usuario_id"])
 
 
 def buscar_mensagens(cursor, atendimento_db_id: int):
@@ -589,6 +604,30 @@ def buscar_avaliacoes(cursor, atendimento_db_id: int):
     return avaliacoes
 
 
+def calcular_liberado_em(id_publico: int) -> float:
+    return session["simulacao_iniciada_em"] + (id_publico * INTERVALO_ENTRE_CHATS)
+
+
+def calcular_inicio_turno(at: dict) -> float:
+    if at["ultimo_tempo_backend"] is not None:
+        return at["ultimo_tempo_backend"]
+    return calcular_liberado_em(at["id"])
+
+
+def atendimento_liberado(at: dict) -> bool:
+    return time.time() >= calcular_liberado_em(at["id"])
+
+
+def atendimento_expirado(at: dict) -> bool:
+    if at["finalizado"]:
+        return False
+    if not atendimento_liberado(at):
+        return False
+
+    inicio_turno = calcular_inicio_turno(at)
+    return (time.time() - inicio_turno) >= TEMPO_LIMITE_CHAT
+
+
 def montar_atendimento_dict(row, cursor):
     atendimento = {
         "db_id": row["id"],
@@ -604,9 +643,14 @@ def montar_atendimento_dict(row, cursor):
         "media_tempo": row["media_tempo"],
         "resposta_esperada": row["resposta_esperada"],
         "finalizado": bool(row["finalizado"]),
+        "bloqueado_tempo": bool(row["bloqueado_tempo"]),
         "ultimo_tempo_backend": row["ultimo_tempo_backend"],
-        "mensagens": buscar_mensagens(cursor, row["id"])
+        "mensagens": buscar_mensagens(cursor, row["id"]),
+        "liberado_em": calcular_liberado_em(row["id_publico"])
     }
+
+    expirado = atendimento_expirado(atendimento)
+    atendimento["bloqueado_tempo"] = atendimento["bloqueado_tempo"] or expirado
     return atendimento
 
 
@@ -661,6 +705,7 @@ def salvar_estado_atendimento(at):
             media_tempo = ?,
             resposta_esperada = ?,
             finalizado = ?,
+            bloqueado_tempo = ?,
             ultimo_tempo_backend = ?
         WHERE id = ?
     """, (
@@ -672,6 +717,7 @@ def salvar_estado_atendimento(at):
         at["media_tempo"],
         at["resposta_esperada"],
         1 if at["finalizado"] else 0,
+        1 if at["bloqueado_tempo"] else 0,
         at["ultimo_tempo_backend"],
         at["db_id"]
     ))
@@ -738,14 +784,29 @@ def resposta_api_atendimento(at, qtd_erros=0, erros_detalhados=None, avisos=None
         "nivel": classificar_nivel(nota_final),
         "tempo_resposta": tempo_resposta,
         "sugestao": at["resposta_esperada"],
-        "finalizado": at["finalizado"]
+        "finalizado": at["finalizado"],
+        "bloqueado_tempo": at["bloqueado_tempo"],
+        "liberado_em": at["liberado_em"]
     }
 
 
 @app.route("/")
 def index():
-    atendimentos = listar_atendimentos_usuario(session["usuario_id"])
-    return render_template("chat.html", atendimentos=atendimentos)
+    usuario_uuid = session["usuario_id"]
+
+    reiniciar_simulacao()
+    limpar_simulacao_usuario(usuario_uuid)
+    inicializar_atendimentos_usuario(usuario_uuid)
+
+    atendimentos = listar_atendimentos_usuario(usuario_uuid)
+
+    return render_template(
+        "chat.html",
+        atendimentos=atendimentos,
+        simulacao_iniciada_em=session["simulacao_iniciada_em"],
+        tempo_limite_chat=TEMPO_LIMITE_CHAT,
+        intervalo_entre_chats=INTERVALO_ENTRE_CHATS
+    )
 
 
 @app.route("/responder", methods=["POST"])
@@ -777,6 +838,14 @@ def responder():
     if at["finalizado"]:
         return jsonify(resposta_api_atendimento(at, tempo_resposta=0))
 
+    if not atendimento_liberado(at):
+        return jsonify({"erro": "Este atendimento ainda não foi liberado para resposta."}), 403
+
+    if atendimento_expirado(at):
+        at["bloqueado_tempo"] = True
+        salvar_estado_atendimento(at)
+        return jsonify({"erro": "O tempo deste atendimento expirou. A digitação está bloqueada para este chat."}), 403
+
     etapa = at["etapa_atual"]
 
     if etapa >= len(at["fluxo"]):
@@ -785,11 +854,8 @@ def responder():
         at = buscar_atendimento_usuario(session["usuario_id"], id_atendimento)
         return jsonify(resposta_api_atendimento(at, tempo_resposta=0))
 
-    agora = time.time()
-    if at["ultimo_tempo_backend"] is None:
-        tempo_resposta_segundos = 0
-    else:
-        tempo_resposta_segundos = round(agora - at["ultimo_tempo_backend"], 1)
+    inicio_turno = calcular_inicio_turno(at)
+    tempo_resposta_segundos = round(max(0, time.time() - inicio_turno), 1)
 
     at["resposta_esperada"] = at["fluxo"][etapa]["resposta_esperada"]
 
@@ -861,6 +927,7 @@ def responder():
     at["media_tempo"] = sum(a["tempo"] for a in at["avaliacoes"]) / at["total_respostas"]
 
     at["etapa_atual"] += 1
+    at["bloqueado_tempo"] = False
 
     if at["etapa_atual"] < len(at["fluxo"]):
         proxima_msg = at["fluxo"][at["etapa_atual"]]["cliente"]
@@ -873,6 +940,7 @@ def responder():
         at["ultimo_tempo_backend"] = time.time()
     else:
         at["finalizado"] = True
+        at["ultimo_tempo_backend"] = time.time()
 
     salvar_estado_atendimento(at)
 
