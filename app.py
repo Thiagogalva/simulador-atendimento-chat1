@@ -156,6 +156,8 @@ def responder():
 
     at["resposta_esperada"] = at["fluxo"][etapa]["resposta_esperada"]
 
+    respostas_anteriores = [m["texto"] for m in at["mensagens"] if m["tipo"] == "operador"]
+
     adicionar_mensagem(at["db_id"], "operador", resposta)
     at["mensagens"].append({
         "tipo": "operador",
@@ -185,7 +187,8 @@ def responder():
 
     qtd_erros = len(erros)
     coerencia = calcular_coerencia(resposta, at)
-    empatia = avaliar_empatia(resposta)
+    empatia, avisos_tom = avaliar_empatia(resposta, respostas_anteriores)
+    avisos.extend(avisos_tom)
     nota_tempo = avaliar_tempo(tempo_resposta_segundos)
 
     if not pontuacao_ok:

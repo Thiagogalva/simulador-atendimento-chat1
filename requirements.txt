@@ -1,3 +1,4 @@
 Flask==3.1.0
 pyspellchecker==0.8.3
+snowballstemmer==3.1.1
 gunicorn==23.0.0

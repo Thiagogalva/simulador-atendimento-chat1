@@ -2,8 +2,8 @@
 
 Sistema de simulação de atendimento por chat para treinamento de operadores. Cada resposta é avaliada em:
 
-- **Coerência** – similaridade com a resposta esperada do passo (com sinônimos, frases-chave e palavras críticas do atendimento);
-- **Empatia** – presença de expressões empáticas;
+- **Coerência** – similaridade de *significado* com a resposta esperada do passo: compara conceitos (radicais + sinônimos), pondera pela raridade do termo, detecta negação invertida e tolera erros de digitação; soma frases-chave e palavras críticas exigidas pelo passo;
+- **Empatia / tom** – acolhimento, ação, cortesia e próximo passo, com avisos para tom hostil, descaso, culpa do cliente, caixa alta, gírias e respostas repetidas;
 - **Tempo** – rapidez da resposta (limite por turno em `TEMPO_LIMITE_CHAT`);
 - **Linguagem** – ortografia (pyspellchecker + vocabulário do domínio), abreviações proibidas, letra maiúscula inicial, pontuação final e tamanho mínimo.
 
@@ -42,7 +42,8 @@ config.py         configurações
 data/             roteiros dos atendimentos (BASE_ATENDIMENTOS)
 database/         conexão e criação das tabelas
 repositories/     acesso ao banco (usuários, atendimentos, mensagens, avaliações)
-services/         regras: texto (ortografia), avaliação (notas), tempo
+services/         regras: texto (ortografia), semântica, tom, avaliação (notas), tempo
+tests/            testes automatizados (python -m unittest discover -s tests -t .)
 templates/ static/  interface do chat
 ```
 

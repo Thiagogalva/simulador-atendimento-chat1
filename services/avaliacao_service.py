@@ -1,10 +1,10 @@
 from services.texto_service import (
     FRASES_CHAVE,
     PALAVRAS_CRITICAS,
-    PALAVRAS_EMPATICAS,
-    normalizar_texto,
-    expandir_com_sinonimos
+    normalizar_texto
 )
+from services.semantica_service import conceitos, similaridade
+from services.tom_service import avaliar_tom
 
 def fracao_frases_chave(resposta_normalizada: str, esperada_normalizada: str):
     """
@@ -26,46 +26,39 @@ def fracao_frases_chave(resposta_normalizada: str, esperada_normalizada: str):
         return None
     return atendidos / exigidos
 
-def fracao_palavras_criticas(palavras_resposta: set, palavras_esperadas: set, titulo_atendimento: str):
+def fracao_palavras_criticas(conceitos_resposta: set, conceitos_esperados: set, titulo_atendimento: str):
     """
     Entre as palavras críticas do atendimento que aparecem na resposta esperada deste passo,
     retorna a fração presente na resposta do operador.
     Retorna None quando o passo não exige nenhuma palavra crítica.
     """
-    criticas = {normalizar_texto(p) for p in PALAVRAS_CRITICAS.get(titulo_atendimento.lower(), [])}
-    exigidas = {p for p in criticas if p in palavras_esperadas}
+    criticas = set()
+    for palavra in PALAVRAS_CRITICAS.get(titulo_atendimento.lower(), []):
+        criticas |= conceitos(palavra)
+    exigidas = criticas & conceitos_esperados
 
     if not exigidas:
         return None
-    return sum(1 for p in exigidas if p in palavras_resposta) / len(exigidas)
+    return sum(1 for c in exigidas if c in conceitos_resposta) / len(exigidas)
 
 def calcular_coerencia(resposta: str, atendimento: dict) -> int:
     resposta_normalizada = normalizar_texto(resposta)
     esperada_normalizada = normalizar_texto(atendimento["resposta_esperada"])
 
-    palavras_resposta = set(resposta_normalizada.split())
-    palavras_esperadas = set(esperada_normalizada.split())
-
-    if len(palavras_esperadas) == 0:
+    if not esperada_normalizada.split():
         return 0
-
-    palavras_resposta_expandidas = expandir_com_sinonimos(palavras_resposta)
-    palavras_esperadas_expandidas = expandir_com_sinonimos(palavras_esperadas)
-
-    intersecao = palavras_resposta_expandidas.intersection(palavras_esperadas_expandidas)
-    similaridade = len(intersecao) / len(palavras_esperadas_expandidas)
 
     # Componentes (peso, fração 0-1). Frases-chave e palavras críticas só entram
     # quando o passo atual realmente as exige; assim a resposta sugerida vale 100.
-    componentes = [(60, similaridade)]
+    componentes = [(60, similaridade(resposta, atendimento["resposta_esperada"]))]
 
     frases = fracao_frases_chave(resposta_normalizada, esperada_normalizada)
     if frases is not None:
         componentes.append((20, frases))
 
     criticas = fracao_palavras_criticas(
-        palavras_resposta_expandidas,
-        palavras_esperadas_expandidas,
+        conceitos(resposta),
+        conceitos(atendimento["resposta_esperada"]),
         atendimento.get("titulo", "")
     )
     if criticas is not None:
@@ -82,10 +75,9 @@ def calcular_coerencia(resposta: str, atendimento: dict) -> int:
 
     return max(0, min(100, int(round(nota))))
 
-def avaliar_empatia(resposta: str) -> int:
-    resposta_lower = resposta.lower()
-    pontos = sum(1 for p in PALAVRAS_EMPATICAS if p in resposta_lower)
-    return min(20, pontos * 5)
+def avaliar_empatia(resposta: str, respostas_anteriores=None):
+    """Retorna (nota de empatia 0-20, avisos de tom)."""
+    return avaliar_tom(resposta, respostas_anteriores)
 
 def avaliar_tempo(segundos: float) -> int:
     if segundos <= 10:

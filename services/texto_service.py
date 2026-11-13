@@ -74,7 +74,23 @@ SINONIMOS = {
     "cancelamento": ["cancelar"],
     "estorno": ["devolução", "devolucao", "reembolso"],
     "urgência": ["urgencia", "prioridade"],
-    "informações": ["informacoes", "dados", "detalhes"]
+    "informações": ["informacoes", "dados", "detalhes"],
+    "entender": ["compreender", "perceber"],
+    "lamentar": ["sentir", "desculpar", "lastimar"],
+    "transtorno": ["inconveniente", "incômodo", "incomodo", "dificuldade", "contratempo"],
+    "aguardar": ["esperar", "acompanhar"],
+    "encaminhar": ["direcionar", "transferir", "repassar"],
+    "segurança": ["seguranca", "proteção", "protecao"],
+    "registrar": ["abrir", "protocolar", "cadastrar"],
+    "liberação": ["liberacao", "desbloqueio", "liberar", "desbloquear"],
+    "cobrança": ["cobranca", "tarifa", "taxa"],
+    "valor": ["quantia", "montante"],
+    "atendimento": ["suporte", "assistência", "assistencia"],
+    "disposição": ["disposicao", "dispor"],
+    "situação": ["situacao", "caso", "cenário", "cenario", "quadro"],
+    "andamento": ["status", "progresso", "evolução", "evolucao", "etapa"],
+    "previsto": ["estimado", "previsão", "previsao", "esperado"],
+    "retorno": ["resposta", "posicionamento"],
 }
 
 FRASES_CHAVE = [
