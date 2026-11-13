@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, jsonify, session
 import uuid
 import time
 
-from config import SECRET_KEY, TEMPO_LIMITE_CHAT, INTERVALO_ENTRE_CHATS
+from config import SECRET_KEY, TEMPO_LIMITE_CHAT, INTERVALO_ENTRE_CHATS, DEBUG
 from database.init_db import init_db
 from repositories.usuario_repository import garantir_usuario_no_banco
 from repositories.atendimento_repository import (
@@ -60,7 +60,9 @@ def resposta_api_atendimento(at, qtd_erros=0, erros_detalhados=None, avisos=None
         "sugestao": at["resposta_esperada"],
         "finalizado": at["finalizado"],
         "bloqueado_tempo": at["bloqueado_tempo"],
-        "liberado_em": at["liberado_em"]
+        "liberado_em": at["liberado_em"],
+        "ultimo_tempo_backend": at["ultimo_tempo_backend"],
+        "servidor_agora": time.time()
     }
 
 @app.before_request
@@ -88,7 +90,8 @@ def index():
         atendimentos=atendimentos,
         simulacao_iniciada_em=session["simulacao_iniciada_em"],
         tempo_limite_chat=TEMPO_LIMITE_CHAT,
-        intervalo_entre_chats=INTERVALO_ENTRE_CHATS
+        intervalo_entre_chats=INTERVALO_ENTRE_CHATS,
+        servidor_agora=time.time()
     )
 
 @app.route("/responder", methods=["POST"])
@@ -112,7 +115,9 @@ def responder():
     if not resposta:
         return jsonify({"erro": "Resposta vazia."}), 400
 
-    simulacao_iniciada_em = session["simulacao_iniciada_em"]
+    simulacao_iniciada_em = session.get("simulacao_iniciada_em")
+    if simulacao_iniciada_em is None:
+        return jsonify({"erro": "Sessão expirada. Recarregue a página para iniciar uma nova simulação."}), 409
 
     at = buscar_atendimento_usuario(
         session["usuario_id"],
@@ -252,6 +257,6 @@ def responder():
 
 if __name__ == "__main__":
     init_db()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=DEBUG)
 else:
     init_db()

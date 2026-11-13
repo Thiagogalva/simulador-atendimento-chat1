@@ -11,6 +11,41 @@ PALAVRAS_PERMITIDAS = {
     "setor", "responsável", "responsavel", "horário", "horario", "extorno", "ok",
 }
 
+# O dicionário "pt" do pyspellchecker tem grafia de Portugal (ex.: "registada", "libertação")
+# e não conhece vocabulário comum do atendimento bancário brasileiro. Estas palavras evitam
+# marcar como erro termos corretos em pt-BR.
+PALAVRAS_PT_BR_EXTRAS = {
+    "mail", "time", "times", "pix",
+    "registrada", "registradas", "registrado", "registrados", "registrar", "registrando", "registrei",
+    "liberação", "liberacao", "liberações", "liberacoes", "liberar", "liberado", "liberada",
+    "liberando", "liberei",
+    "estornar", "estornado", "estornada", "estornando", "estornos",
+    "tratativa", "tratativas",
+    "encaminhar", "encaminhado", "encaminhada", "encaminhando", "encaminhei", "encaminhamento",
+    "providenciar", "providenciado", "providenciada", "providenciando", "providenciei",
+    "protocolo", "protocolos", "cancelamento", "contestação", "contestacao", "contestar",
+    "cartão", "cartao", "fatura", "comprovante", "titularidade", "titular", "cautelar",
+    "tarifa", "tarifas", "especialista", "especialistas", "chave", "limite",
+    "desbloqueio", "desbloquear", "bloqueada", "bloqueado", "bloqueadas", "bloqueados",
+    "solicitação", "solicitacao", "solicitações", "solicitacoes", "solicitar", "solicitado",
+    "contestado", "contestada", "reclamação", "reclamacao",
+}
+
+def _palavras_da_base() -> set:
+    """Toda palavra usada nos próprios roteiros (cliente e resposta esperada) é válida."""
+    from data.base_atendimentos import BASE_ATENDIMENTOS
+
+    palavras = set()
+    for item in BASE_ATENDIMENTOS:
+        for passo in item["fluxo"]:
+            for texto in (passo["cliente"], passo["resposta_esperada"]):
+                for m in re.finditer(r"\b[^\W\d_]+\b", texto, re.UNICODE):
+                    palavras.add(m.group(0).lower())
+    return palavras
+
+PALAVRAS_PERMITIDAS |= PALAVRAS_PT_BR_EXTRAS
+PALAVRAS_PERMITIDAS |= _palavras_da_base()
+
 ABREVIACOES_PROIBIDAS = {
     "vc": "você",
     "vcs": "vocês",

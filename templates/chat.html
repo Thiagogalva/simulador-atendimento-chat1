@@ -57,6 +57,13 @@ const INTERVALO_ENTRE_CHATS = {{ intervalo_entre_chats | tojson }};
 let simulacaoIniciadaEm = {{ simulacao_iniciada_em | tojson }};
 let telaFinalMostrada = false;
 
+// Os prazos são calculados no servidor; usamos o relógio dele para não depender da hora do navegador.
+let offsetRelogio = {{ servidor_agora | tojson }} - Date.now() / 1000;
+
+function agoraServidor() {
+    return Date.now() / 1000 + offsetRelogio;
+}
+
 function prepararDadosIniciais() {
     dados = dados.sort((a, b) => a.id - b.id);
 
@@ -78,7 +85,7 @@ function prepararDadosIniciais() {
                 : simulacaoIniciadaEm + (index * INTERVALO_ENTRE_CHATS)
         );
 
-        at.iniciado = (Date.now() / 1000) >= at.liberadoEm;
+        at.iniciado = agoraServidor() >= at.liberadoEm;
 
         if (at.ultimo_tempo_backend !== undefined && at.ultimo_tempo_backend !== null) {
             at.ultimoTempo = Number(at.ultimo_tempo_backend);
@@ -179,12 +186,12 @@ function renderMensagens() {
 }
 
 function chatJaFoiLiberado(at) {
-    const agora = Date.now() / 1000;
+    const agora = agoraServidor();
     return agora >= at.liberadoEm;
 }
 
 function tempoDecorridoNoTurno(at) {
-    const agora = Date.now() / 1000;
+    const agora = agoraServidor();
     return Math.max(0, Math.floor(agora - at.ultimoTempo));
 }
 
@@ -297,17 +304,35 @@ function enviar() {
                     mensagem = erroJson.erro;
                 }
             } catch (e) {
-                const erroTexto = await r.text();
-                if (erroTexto) {
-                    mensagem = erroTexto;
-                }
+                // resposta sem JSON (ex.: erro 500): mantém a mensagem padrão
             }
-            throw new Error(mensagem);
+            const erro = new Error(mensagem);
+            erro.status = r.status;
+            throw erro;
         }
         return r.json();
     })
     .then(data => {
+        if (data.servidor_agora !== undefined && data.servidor_agora !== null) {
+            offsetRelogio = Number(data.servidor_agora) - Date.now() / 1000;
+        }
+
+        // O servidor só devolve o texto; guardamos o realce de erros das respostas anteriores.
+        const anotacoesAnteriores = at.mensagens
+            .filter(m => m.tipo === "operador")
+            .map(m => ({ erros: m.erros, avisos: m.avisos }));
+
         at.mensagens = data.mensagens || [];
+
+        let posOperador = 0;
+        at.mensagens.forEach(m => {
+            if (m.tipo !== "operador") return;
+            const anterior = anotacoesAnteriores[posOperador++];
+            if (anterior) {
+                m.erros = anterior.erros;
+                m.avisos = anterior.avisos;
+            }
+        });
 
         const idxOperador = encontrarUltimaMensagemOperador(at.mensagens);
         if (idxOperador !== -1) {
@@ -333,7 +358,9 @@ function enviar() {
         }
 
         if (!at.finalizado) {
-            at.ultimoTempo = Date.now() / 1000;
+            at.ultimoTempo = (data.ultimo_tempo_backend !== undefined && data.ultimo_tempo_backend !== null)
+                ? Number(data.ultimo_tempo_backend)
+                : agoraServidor();
         }
 
         renderMensagens();
@@ -352,6 +379,17 @@ function enviar() {
     .catch(error => {
         console.error("Erro no envio:", error);
         alert(error.message || "O atendimento não respondeu. Verifique o app.py ou o terminal do Flask.");
+
+        if (error.status === 409) {
+            window.location.href = "/";
+            return;
+        }
+
+        if (error.status === 403 && /expirou/i.test(error.message || "")) {
+            at.bloqueado_tempo = true;
+            atualizarBadgeAtendimento(at);
+        }
+
         atualizarEstadoCampo();
     });
 }
@@ -465,7 +503,7 @@ function classificarGeral(media) {
 }
 
 function atualizarTimers() {
-    const agora = Date.now() / 1000;
+    const agora = agoraServidor();
 
     dados.forEach(at => {
         const el = document.getElementById("timer-" + at.id);
