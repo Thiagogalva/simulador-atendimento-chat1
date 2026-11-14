@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block titulo %}Simulador{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="pagina-site">
+{% if g.operador %}
+<header class="topbar">
+    <a class="topbar-marca" href="{{ url_for('index') }}">Simulador de Atendimento</a>
+    <nav class="topbar-nav">
+        <a href="{{ url_for('index') }}">Nova simulação</a>
+        <a href="{{ url_for('painel.historico') }}">Meu histórico</a>
+        <a href="{{ url_for('painel.ranking_view') }}">Ranking</a>
+        <span class="topbar-usuario">{{ g.operador.nome }}</span>
+        <form method="post" action="{{ url_for('auth.sair') }}" class="form-inline">
+            <button type="submit" class="link-botao">Sair</button>
+        </form>
+    </nav>
+</header>
+{% endif %}
+<main class="pagina-conteudo">
+    {% block conteudo %}{% endblock %}
+</main>
+<script>
+document.querySelectorAll("time.data-local").forEach(function (el) {
+    var d = new Date(el.getAttribute("datetime"));
+    if (!isNaN(d)) {
+        el.textContent = d.toLocaleString("pt-BR", {dateStyle: "short", timeStyle: "short"});
+    }
+});
+</script>
+</body>
+</html>

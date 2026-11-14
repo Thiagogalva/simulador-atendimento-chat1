@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block titulo %}Meu histórico - Simulador{% endblock %}
+{% block conteudo %}
+<h1>Meu histórico</h1>
+
+{% if not simulacoes %}
+<section class="cartao">
+    <p>Você ainda não concluiu nenhuma simulação.</p>
+    <p><a class="botao-primario" href="{{ url_for('index') }}">Começar uma simulação</a></p>
+</section>
+{% else %}
+<section class="grade-resumo">
+    <div class="cartao-metrica"><span>Simulações</span><b>{{ resumo.total }}</b></div>
+    <div class="cartao-metrica"><span>Média</span><b>{{ resumo.media }}</b></div>
+    <div class="cartao-metrica"><span>Melhor nota</span><b>{{ resumo.melhor }}</b></div>
+    <div class="cartao-metrica"><span>Última nota</span><b>{{ resumo.ultima }}</b></div>
+    {% if resumo.tendencia is defined %}
+    <div class="cartao-metrica">
+        <span>Tendência</span>
+        <b class="{{ 'tendencia-sobe' if resumo.tendencia > 0 else ('tendencia-desce' if resumo.tendencia < 0 else '') }}">
+            {{ '+' if resumo.tendencia > 0 else '' }}{{ resumo.tendencia }}
+        </b>
+    </div>
+    {% endif %}
+    <div class="cartao-metrica">
+        <span>Posição no ranking</span>
+        <b>{% if posicao %}{{ posicao }}º / {{ total_operadores }}{% else %}-{% endif %}</b>
+    </div>
+</section>
+
+{% if grafico %}
+<section class="cartao">
+    <h2>Evolução das notas (últimas {{ grafico.pontos|length }})</h2>
+    <div class="grafico-rolagem">
+    <svg viewBox="0 0 {{ grafico.largura }} {{ grafico.altura }}" class="grafico" role="img"
+         aria-label="Gráfico de evolução das notas das simulações">
+        {% for linha in [0, 50, 100] %}
+        {% set y = grafico.margem + (grafico.altura - 2 * grafico.margem) * (1 - linha / 100) %}
+        <line x1="{{ grafico.margem }}" x2="{{ grafico.largura - grafico.margem }}" y1="{{ y }}" y2="{{ y }}" class="grafico-grade"/>
+        <text x="2" y="{{ y + 4 }}" class="grafico-rotulo">{{ linha }}</text>
+        {% endfor %}
+        <polyline points="{{ grafico.linha }}" class="grafico-linha"/>
+        {% for p in grafico.pontos %}
+        <circle cx="{{ p.x }}" cy="{{ p.y }}" r="3.5" class="grafico-ponto"><title>{{ p.nota }}</title></circle>
+        {% endfor %}
+    </svg>
+    </div>
+</section>
+{% endif %}
+
+<section class="cartao">
+    <h2>Simulações concluídas</h2>
+    <div class="tabela-rolagem">
+    <table class="tabela">
+        <thead>
+            <tr><th>Data</th><th>Nota</th><th>Nível</th><th>Coerência</th><th>Empatia</th><th>Tempo</th><th>Erros</th></tr>
+        </thead>
+        <tbody>
+        {% for s in simulacoes %}
+            <tr>
+                <td><time class="data-local" datetime="{{ s.finalizada_em }}">{{ s.finalizada_em }}</time></td>
+                <td><b>{{ s.nota_geral }}</b></td>
+                <td>{{ s.nivel }}</td>
+                <td>{{ s.media_coerencia }}</td>
+                <td>{{ s.media_empatia }}</td>
+                <td>{{ s.media_tempo }}</td>
+                <td>{{ s.total_erros }}</td>
+            </tr>
+            <tr class="linha-detalhe">
+                <td colspan="7">
+                    <details>
+                        <summary>Ver atendimentos ({{ s.total_atendimentos }})</summary>
+                        <ul class="lista-detalhe">
+                        {% for d in s.detalhes %}
+                            <li>
+                                <b>Cliente {{ d.id + 1 }} - {{ d.titulo }}</b>:
+                                nota {{ d.nota }} ({{ d.nivel }}) · {{ d.status }} ·
+                                coerência {{ d.coerencia }}, empatia {{ d.empatia }}, tempo {{ d.tempo }}, erros {{ d.erros }}
+                            </li>
+                        {% endfor %}
+                        </ul>
+                    </details>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</section>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block titulo %}Ranking - Simulador{% endblock %}
+{% block conteudo %}
+<h1>Ranking de operadores</h1>
+
+<nav class="abas">
+    {% for chave, rotulo in periodos.items() %}
+    <a href="{{ url_for('painel.ranking_view', periodo=chave) }}" class="aba {{ 'aba-ativa' if chave == periodo else '' }}">{{ rotulo }}</a>
+    {% endfor %}
+</nav>
+
+<section class="cartao">
+{% if not itens %}
+    <p>Ainda não há simulações concluídas neste período.</p>
+{% else %}
+    <div class="tabela-rolagem">
+    <table class="tabela">
+        <thead>
+            <tr><th>#</th><th>Operador</th><th>Média</th><th>Melhor</th><th>Simulações</th><th>Última</th></tr>
+        </thead>
+        <tbody>
+        {% for i in itens %}
+            <tr class="{{ 'linha-eu' if i.operador_id == meu_id else '' }}">
+                <td>
+                    {% if i.posicao == 1 %}🥇{% elif i.posicao == 2 %}🥈{% elif i.posicao == 3 %}🥉{% else %}{{ i.posicao }}{% endif %}
+                </td>
+                <td>{{ i.nome }}{% if i.operador_id == meu_id %} <span class="etiqueta">você</span>{% endif %}</td>
+                <td><b>{{ '%.1f'|format(i.media) }}</b></td>
+                <td>{{ '%.1f'|format(i.melhor) }}</td>
+                <td>{{ i.simulacoes }}</td>
+                <td><time class="data-local" datetime="{{ i.ultima }}">{{ i.ultima }}</time></td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    <p class="texto-auxiliar">Ordenado pela média das notas das simulações concluídas no período.</p>
+{% endif %}
+</section>
+{% endblock %}

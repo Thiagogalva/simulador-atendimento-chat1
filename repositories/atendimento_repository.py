@@ -1,5 +1,6 @@
 import json
 import time
+from datetime import datetime
 
 from database.connection import get_connection
 from data.base_atendimentos import BASE_ATENDIMENTOS
@@ -31,7 +32,7 @@ def inicializar_atendimentos_usuario(usuario_uuid: str):
     for item in BASE_ATENDIMENTOS:
         primeiro_passo = item["fluxo"][0]
 
-        cursor.execute("""
+        atendimento_db_id = cursor.inserir("""
             INSERT INTO atendimentos (
                 usuario_uuid,
                 id_publico,
@@ -65,15 +66,14 @@ def inicializar_atendimentos_usuario(usuario_uuid: str):
             None
         ))
 
-        atendimento_db_id = cursor.lastrowid
-
         cursor.execute("""
             INSERT INTO mensagens (atendimento_id, tipo, texto, criado_em)
-            VALUES (?, ?, ?, datetime('now'))
+            VALUES (?, ?, ?, ?)
         """, (
             atendimento_db_id,
             "cliente",
-            primeiro_passo["cliente"]
+            primeiro_passo["cliente"],
+            datetime.now().isoformat()
         ))
 
     conn.commit()

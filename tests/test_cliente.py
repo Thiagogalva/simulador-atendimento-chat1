@@ -3,6 +3,7 @@ import unittest
 
 from data.base_atendimentos import BASE_ATENDIMENTOS
 from database.init_db import garantir_colunas
+from tests.helpers import cliente_logado
 from services.cliente_service import (
     LIMITE_ENCERRAMENTO,
     decidir_reacao,
@@ -102,8 +103,7 @@ class MigracaoDeBanco(unittest.TestCase):
 
 class ClienteReativoNaApi(unittest.TestCase):
     def setUp(self):
-        import app as aplicacao
-        self.client = aplicacao.app.test_client()
+        self.client, self.operador_id, _ = cliente_logado()
         self.client.get("/")
 
     def _post(self, texto, i=0):

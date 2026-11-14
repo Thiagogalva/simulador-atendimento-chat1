@@ -14,3 +14,13 @@ INTERVALO_ENTRE_CHATS = 50
 
 # Debug só quando FLASK_DEBUG=1 (o debugger do Werkzeug não deve ficar exposto em 0.0.0.0).
 DEBUG = os.environ.get("FLASK_DEBUG") == "1"
+
+# Banco persistente (PostgreSQL). Se vazio, usa SQLite em DB_NAME.
+# Ex.: postgresql://usuario:senha@host/banco?sslmode=require  (Neon, Supabase, Render, Railway...)
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+
+# Se definido, o cadastro de operadores exige este código de convite.
+CODIGO_CONVITE = os.environ.get("CODIGO_CONVITE", "").strip()
+
+# Cookies de sessão: Lax contra CSRF; Secure quando servido por HTTPS (Vercel ou SESSION_COOKIE_SECURE=1).
+SESSION_COOKIE_SECURE = bool(os.environ.get("VERCEL")) or os.environ.get("SESSION_COOKIE_SECURE") == "1"

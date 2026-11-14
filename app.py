@@ -1,10 +1,18 @@
-from flask import Flask, render_template, request, jsonify, session
-import uuid
+from flask import Flask, render_template, request, jsonify, session, g, redirect, url_for
 import time
 
-from config import SECRET_KEY, TEMPO_LIMITE_CHAT, INTERVALO_ENTRE_CHATS, DEBUG
+from config import (
+    SECRET_KEY,
+    TEMPO_LIMITE_CHAT,
+    INTERVALO_ENTRE_CHATS,
+    DEBUG,
+    SESSION_COOKIE_SECURE
+)
 from database.init_db import init_db
 from repositories.usuario_repository import garantir_usuario_no_banco
+from repositories.operador_repository import buscar_operador_por_id
+from routes.auth import bp as auth_bp
+from routes.painel import bp as painel_bp
 from repositories.atendimento_repository import (
     limpar_simulacao_usuario,
     inicializar_atendimentos_usuario,
@@ -42,6 +50,16 @@ from services.cliente_service import (
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=SESSION_COOKIE_SECURE,
+)
+app.register_blueprint(auth_bp)
+app.register_blueprint(painel_bp)
+
+if SECRET_KEY == "dev-only-troque-em-producao" and not DEBUG:
+    app.logger.warning("SECRET_KEY padrão em uso. Defina a variável de ambiente SECRET_KEY em produção.")
 
 def resposta_api_atendimento(at, qtd_erros=0, erros_detalhados=None, avisos=None, tempo_resposta=0):
     if erros_detalhados is None:
@@ -74,16 +92,33 @@ def resposta_api_atendimento(at, qtd_erros=0, erros_detalhados=None, avisos=None
         "servidor_agora": time.time()
     }
 
-@app.before_request
-def garantir_usuario():
-    if "usuario_id" not in session:
-        session["usuario_id"] = str(uuid.uuid4())
+ENDPOINTS_PUBLICOS = {"auth.login", "auth.registro", "static"}
+ENDPOINTS_JSON = {"responder", "painel.finalizar"}
 
-    garantir_usuario_no_banco(session["usuario_id"])
+
+@app.before_request
+def exigir_login():
+    """Todas as telas (exceto login/cadastro) exigem um operador autenticado e existente."""
+    if request.endpoint is None or request.endpoint in ENDPOINTS_PUBLICOS:
+        return None
+
+    operador = None
+    if session.get("operador_id"):
+        operador = buscar_operador_por_id(session["operador_id"])
+
+    if operador is None:
+        session.clear()
+        if request.endpoint in ENDPOINTS_JSON:
+            return jsonify({"erro": "Sessão expirada. Faça login novamente."}), 401
+        return redirect(url_for("auth.login"))
+
+    g.operador = operador
+    return None
 
 @app.route("/")
 def index():
     usuario_uuid = session["usuario_id"]
+    garantir_usuario_no_banco(usuario_uuid)
 
     reiniciar_simulacao(session)
     limpar_simulacao_usuario(usuario_uuid)
@@ -100,7 +135,8 @@ def index():
         simulacao_iniciada_em=session["simulacao_iniciada_em"],
         tempo_limite_chat=TEMPO_LIMITE_CHAT,
         intervalo_entre_chats=INTERVALO_ENTRE_CHATS,
-        servidor_agora=time.time()
+        servidor_agora=time.time(),
+        operador_nome=g.operador["nome"]
     )
 
 @app.route("/responder", methods=["POST"])

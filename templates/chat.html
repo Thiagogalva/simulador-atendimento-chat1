@@ -11,6 +11,16 @@
 <div class="container">
 
     <aside class="sidebar">
+        <div class="sidebar-usuario">
+            <span>{{ operador_nome }}</span>
+            <div class="sidebar-links">
+                <a href="{{ url_for('painel.historico') }}" target="_blank" rel="noopener">Histórico</a>
+                <a href="{{ url_for('painel.ranking_view') }}" target="_blank" rel="noopener">Ranking</a>
+                <form method="post" action="{{ url_for('auth.sair') }}" class="form-inline">
+                    <button type="submit" class="link-botao">Sair</button>
+                </form>
+            </div>
+        </div>
         <h3>Atendimentos</h3>
 
         {% for at in atendimentos %}
@@ -412,6 +422,11 @@ function enviar() {
         console.error("Erro no envio:", error);
         alert(error.message || "O atendimento não respondeu. Verifique o app.py ou o terminal do Flask.");
 
+        if (error.status === 401) {
+            window.location.href = "/login";
+            return;
+        }
+
         if (error.status === 409) {
             window.location.href = "/";
             return;
@@ -519,14 +534,50 @@ function mostrarTelaFinal() {
                     ${cardsAtendimentos}
                 </div>
 
+                <p class="resultado-salvo" id="resultado-salvo">Salvando resultado no histórico...</p>
+
                 <div class="resultado-acoes">
                     <button type="button" class="botao-nova-simulacao" onclick="iniciarNovaSimulacao()">
                         Nova simulação
+                    </button>
+                    <button type="button" class="botao-nova-simulacao" onclick="window.location.href='/historico'">
+                        Meu histórico
+                    </button>
+                    <button type="button" class="botao-nova-simulacao" onclick="window.location.href='/ranking'">
+                        Ranking
                     </button>
                 </div>
             </div>
         </div>
     `;
+
+    salvarResultadoFinal();
+}
+
+function salvarResultadoFinal() {
+    const el = document.getElementById("resultado-salvo");
+
+    fetch("/finalizar", { method: "POST" })
+        .then(r => r.json().catch(() => ({})).then(d => ({ ok: r.ok, status: r.status, d })))
+        .then(({ ok, status, d }) => {
+            if (!el) return;
+            if (status === 401) {
+                window.location.href = "/login";
+                return;
+            }
+            if (!ok) {
+                el.textContent = d.erro || "Não foi possível salvar o resultado no histórico.";
+                return;
+            }
+            let texto = "Resultado salvo no seu histórico.";
+            if (d.posicao) {
+                texto += " Sua posição no ranking: " + d.posicao + "º de " + d.total_operadores + ".";
+            }
+            el.textContent = texto;
+        })
+        .catch(() => {
+            if (el) el.textContent = "Não foi possível salvar o resultado no histórico (sem conexão).";
+        });
 }
 
 function classificarGeral(media) {

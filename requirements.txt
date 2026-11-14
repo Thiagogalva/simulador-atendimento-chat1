@@ -1,4 +1,5 @@
 Flask==3.1.0
 pyspellchecker==0.8.3
 snowballstemmer==3.1.1
+psycopg[binary]>=3.2,<4
 gunicorn==23.0.0

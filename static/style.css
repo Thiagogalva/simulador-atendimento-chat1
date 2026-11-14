@@ -445,3 +445,90 @@ button:active {
     background: #fdeaea;
     color: #c62828;
 }
+
+/* ===== Páginas do site (login, histórico, ranking) ===== */
+.pagina-site { background: #f1f3f6; min-height: 100vh; }
+
+.topbar {
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+    background: #2f3542; color: #fff; padding: 12px 20px;
+}
+.topbar a { color: #fff; text-decoration: none; }
+.topbar-marca { font-weight: bold; font-size: 18px; }
+.topbar-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; font-size: 14px; }
+.topbar-nav a:hover { text-decoration: underline; }
+.topbar-usuario { opacity: 0.8; }
+
+.pagina-conteudo { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; box-sizing: border-box; }
+.pagina-conteudo h1 { margin: 0 0 16px; font-size: 26px; }
+.pagina-conteudo h2 { margin: 0 0 12px; font-size: 18px; }
+
+.cartao {
+    background: #fff; border: 1px solid #dde2ea; border-radius: 12px;
+    padding: 20px; margin-bottom: 18px; box-sizing: border-box;
+}
+.cartao-auth { max-width: 420px; margin: 40px auto; }
+
+.form-auth { display: flex; flex-direction: column; gap: 14px; }
+.form-auth label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: #444; }
+.form-auth input {
+    padding: 10px 12px; border: 1px solid #c9d0db; border-radius: 8px; font-size: 15px;
+}
+.form-auth input:focus { outline: 2px solid #90caf9; border-color: #64b5f6; }
+.form-inline { display: inline; margin: 0; }
+
+.botao-primario {
+    display: inline-block; background: #1e88e5; color: #fff; border: 0; border-radius: 8px;
+    padding: 10px 16px; font-size: 15px; cursor: pointer; text-decoration: none; text-align: center;
+}
+.botao-primario:hover { background: #1976d2; }
+.link-botao { background: none; border: 0; color: #fff; cursor: pointer; font-size: 14px; padding: 0; }
+.link-botao:hover { text-decoration: underline; }
+
+.alerta-erro {
+    background: #fdeaea; color: #b71c1c; border: 1px solid #ef9a9a; border-radius: 8px;
+    padding: 10px 14px; margin: 0 0 14px; font-size: 14px; list-style-position: inside;
+}
+.texto-auxiliar { color: #666; font-size: 13px; margin: 12px 0 0; }
+
+.grade-resumo { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.cartao-metrica {
+    background: #fff; border: 1px solid #dde2ea; border-radius: 12px; padding: 14px;
+    display: flex; flex-direction: column; gap: 6px;
+}
+.cartao-metrica span { color: #666; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.cartao-metrica b { font-size: 24px; }
+.tendencia-sobe { color: #2e7d32; }
+.tendencia-desce { color: #c62828; }
+
+.grafico-rolagem, .tabela-rolagem { overflow-x: auto; }
+.grafico { width: 100%; min-width: 360px; height: auto; }
+.grafico-grade { stroke: #e3e7ee; stroke-width: 1; }
+.grafico-rotulo { fill: #888; font-size: 10px; }
+.grafico-linha { fill: none; stroke: #1e88e5; stroke-width: 2.5; stroke-linejoin: round; }
+.grafico-ponto { fill: #1e88e5; stroke: #fff; stroke-width: 1.5; }
+
+.tabela { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tabela th, .tabela td { padding: 10px 8px; text-align: left; border-bottom: 1px solid #edf0f4; white-space: nowrap; }
+.tabela th { color: #666; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.linha-detalhe td { border-bottom: 1px solid #dde2ea; white-space: normal; color: #444; padding-top: 0; }
+.lista-detalhe { margin: 8px 0 4px; padding-left: 18px; line-height: 1.6; }
+.linha-eu { background: #e3f2fd; }
+.etiqueta { background: #1e88e5; color: #fff; border-radius: 10px; font-size: 11px; padding: 1px 7px; margin-left: 4px; }
+
+.abas { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.aba {
+    padding: 8px 14px; border-radius: 18px; background: #fff; border: 1px solid #dde2ea;
+    color: #333; text-decoration: none; font-size: 14px;
+}
+.aba-ativa { background: #1e88e5; border-color: #1e88e5; color: #fff; }
+
+/* Barra do operador no chat */
+.sidebar-usuario {
+    display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 12px;
+    margin-bottom: 8px; border-bottom: 1px solid #444; font-size: 13px;
+}
+.sidebar-usuario a, .sidebar-usuario .link-botao { color: #cfd8e3; text-decoration: none; font-size: 13px; }
+.sidebar-usuario a:hover, .sidebar-usuario .link-botao:hover { text-decoration: underline; }
+.sidebar-links { display: flex; gap: 12px; flex-wrap: wrap; }
+.resultado-salvo { margin-top: 14px; font-size: 14px; color: #444; }

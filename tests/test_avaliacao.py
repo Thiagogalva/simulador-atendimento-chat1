@@ -6,6 +6,7 @@ from services.avaliacao_service import calcular_coerencia
 from services.semantica_service import similaridade
 from services.texto_service import detectar_erros_linguisticos
 from services.tom_service import avaliar_tom
+from tests.helpers import cliente_logado, preparar_turno
 
 E1 = BASE_ATENDIMENTOS[0]["fluxo"][0]["resposta_esperada"]
 E_NEG = BASE_ATENDIMENTOS[1]["fluxo"][3]["resposta_esperada"]
@@ -104,7 +105,7 @@ class FluxoCompleto(unittest.TestCase):
     def setUp(self):
         import app as aplicacao
         self.app = aplicacao.app
-        self.client = self.app.test_client()
+        self.client, self.operador_id, _ = cliente_logado()
         self.client.get("/")
 
     def _post(self, i, texto):
@@ -114,11 +115,7 @@ class FluxoCompleto(unittest.TestCase):
     def test_fluxo_com_respostas_sugeridas_termina_com_nota_maxima(self):
         with self.client.session_transaction() as s:
             s["simulacao_iniciada_em"] = time.time() - 1000
-        from database.connection import get_connection
-        conn = get_connection()
-        conn.execute("UPDATE atendimentos SET ultimo_tempo_backend=? WHERE id_publico=0", (time.time(),))
-        conn.commit()
-        conn.close()
+        preparar_turno(self.operador_id, 0)
 
         for passo in BASE_ATENDIMENTOS[0]["fluxo"]:
             status, dados = self._post(0, passo["resposta_esperada"])
@@ -134,10 +131,17 @@ class FluxoCompleto(unittest.TestCase):
         self.assertLess(dados["media_empatia"], 5)
 
     def test_sessao_expirada_retorna_409(self):
-        status = self.app.test_client().post(
+        logado, _, _ = cliente_logado()  # autenticado, mas sem ter aberto a simulação
+        status = logado.post(
             "/responder", json={"id": 0, "resposta": "Texto longo o bastante para a validação."}
         ).status_code
         self.assertEqual(status, 409)
+
+    def test_sem_login_retorna_401(self):
+        status = self.app.test_client().post(
+            "/responder", json={"id": 0, "resposta": "Texto longo o bastante para a validação."}
+        ).status_code
+        self.assertEqual(status, 401)
 
 
 if __name__ == "__main__":

@@ -31,31 +31,60 @@ python app.py                    # http://127.0.0.1:5000
 
 Em produção: `gunicorn app:app`.
 
-## Configuração (`config.py`)
+## Contas, histórico e ranking
+
+- Cada operador tem **usuário + senha** (senha guardada com hash). Rotas protegidas: tudo, exceto `/login` e `/registro`.
+- Ao terminar uma simulação, o resultado é **salvo no histórico** (`/historico`): notas, evolução em gráfico e detalhe por atendimento. O cálculo é feito no servidor; o navegador não envia nota nenhuma.
+- `/ranking` ordena os operadores pela média das notas (geral, 30 dias ou 7 dias). Só o **nome de exibição** é público.
+- Proteções: bloqueio temporário após 5 logins errados, cookie de sessão `HttpOnly` + `SameSite=Lax` (+ `Secure` em HTTPS), mensagens de erro que não revelam se o usuário existe.
+- Para restringir quem pode se cadastrar, defina `CODIGO_CONVITE`.
+
+## Configuração
 
 | Variável de ambiente | Padrão | Descrição |
 | --- | --- | --- |
-| `SECRET_KEY` | chave de desenvolvimento | **Defina em produção.** |
-| `DB_NAME` | `simulador.db` na pasta do projeto (`/tmp/simulador.db` na Vercel) | Caminho do SQLite. |
+| `SECRET_KEY` | chave de desenvolvimento | **Defina em produção** (use um valor longo e aleatório). |
+| `DATABASE_URL` | vazio (usa SQLite) | URL do PostgreSQL, ex.: `postgresql://usuario:senha@host/banco?sslmode=require`. |
+| `DB_NAME` | `simulador.db` na pasta do projeto | Arquivo do SQLite (usado quando não há `DATABASE_URL`). |
+| `CODIGO_CONVITE` | vazio | Se definido, o cadastro exige este código. |
+| `SESSION_COOKIE_SECURE` | automático na Vercel | `1` força cookie só por HTTPS. |
 | `FLASK_DEBUG` | desligado | `1` ativa o modo debug. |
 
 `TEMPO_LIMITE_CHAT` e `INTERVALO_ENTRE_CHATS` (segundos) ficam direto em `config.py`.
 
-> **Hospedagem:** o SQLite grava em arquivo local. Em plataformas serverless (Vercel) o disco é temporário e
-> não é compartilhado entre instâncias, então o estado da simulação pode se perder. Prefira um host com disco
-> persistente (Render, Railway, PythonAnywhere...) ou troque o SQLite por um banco externo.
+## Banco de dados
+
+- **Local:** SQLite, sem configuração. O arquivo `simulador.db` não vai para o Git.
+- **Produção (persistente):** PostgreSQL via `DATABASE_URL`. Há opções gratuitas (Neon, Supabase). As tabelas são criadas e atualizadas automaticamente na inicialização.
+- O mesmo código roda nos dois bancos; os testes passam em ambos.
+
+### Publicar na Vercel (ou outro host)
+
+1. Crie um banco PostgreSQL gratuito (ex.: Neon) e copie a connection string.
+2. Na Vercel, em *Settings → Environment Variables*, defina `DATABASE_URL`, `SECRET_KEY` e (opcional) `CODIGO_CONVITE`.
+3. Faça o deploy. Sem `DATABASE_URL`, o SQLite ficaria em `/tmp` e os dados se perderiam.
+
+## Testes
+
+```bash
+python -m unittest discover -s tests -t .                       # SQLite temporário
+TEST_DATABASE_URL=postgresql://... python -m unittest discover -s tests -t .   # PostgreSQL de TESTE
+```
+
+Os testes ignoram `DATABASE_URL` de propósito (criam operadores e simulações); para PostgreSQL use `TEST_DATABASE_URL` com um banco de teste, nunca o de produção.
 
 ## Estrutura
 
 ```
-app.py            rotas Flask (/ e /responder)
+app.py            app Flask: simulador (/ e /responder) e proteção de login
 config.py         configurações
 data/             roteiros dos atendimentos (BASE_ATENDIMENTOS)
-database/         conexão e criação das tabelas
-repositories/     acesso ao banco (usuários, atendimentos, mensagens, avaliações)
+database/         conexão (SQLite ou PostgreSQL) e criação/migração das tabelas
+routes/           login/cadastro (auth) e histórico, ranking e finalização (painel)
+repositories/     acesso ao banco (operadores, simulações, atendimentos, mensagens, avaliações)
 services/         regras: texto (ortografia), semântica, tom, cliente reativo, avaliação (notas), tempo
 tests/            testes automatizados (python -m unittest discover -s tests -t .)
-templates/ static/  interface do chat
+templates/ static/  interface do chat, login, histórico e ranking
 ```
 
 Para incluir um novo atendimento, adicione um item em `data/base_atendimentos.py` (e, se quiser bônus por
