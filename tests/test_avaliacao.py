@@ -1,11 +1,5 @@
-import os
-import tempfile
 import time
 import unittest
-
-_tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-_tmp.close()
-os.environ["DB_NAME"] = _tmp.name  # antes de importar config/app
 
 from data.base_atendimentos import BASE_ATENDIMENTOS
 from services.avaliacao_service import calcular_coerencia

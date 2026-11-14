@@ -6,6 +6,7 @@ from data.base_atendimentos import BASE_ATENDIMENTOS
 from repositories.mensagem_repository import buscar_mensagens
 from repositories.avaliacao_repository import buscar_avaliacoes
 from services.tempo_service import calcular_liberado_em, atendimento_expirado
+from services.cliente_service import humor_da_irritacao
 
 def limpar_simulacao_usuario(usuario_uuid: str):
     conn = get_connection()
@@ -95,9 +96,14 @@ def montar_atendimento_dict(row, cursor, simulacao_iniciada_em):
         "finalizado": bool(row["finalizado"]),
         "bloqueado_tempo": bool(row["bloqueado_tempo"]),
         "ultimo_tempo_backend": row["ultimo_tempo_backend"],
+        "irritacao": row["irritacao"],
+        "tentativas_etapa": row["tentativas_etapa"],
+        "encerrado_por_cliente": bool(row["encerrado_por_cliente"]),
         "mensagens": buscar_mensagens(cursor, row["id"]),
         "liberado_em": calcular_liberado_em(simulacao_iniciada_em, row["id_publico"])
     }
+
+    atendimento["humor"] = "encerrado" if atendimento["encerrado_por_cliente"] else humor_da_irritacao(atendimento["irritacao"])
 
     expirado = atendimento_expirado(atendimento, simulacao_iniciada_em)
     atendimento["bloqueado_tempo"] = atendimento["bloqueado_tempo"] or expirado
@@ -156,7 +162,10 @@ def salvar_estado_atendimento(at):
             resposta_esperada = ?,
             finalizado = ?,
             bloqueado_tempo = ?,
-            ultimo_tempo_backend = ?
+            ultimo_tempo_backend = ?,
+            irritacao = ?,
+            tentativas_etapa = ?,
+            encerrado_por_cliente = ?
         WHERE id = ?
     """, (
         at["etapa_atual"],
@@ -169,6 +178,9 @@ def salvar_estado_atendimento(at):
         1 if at["finalizado"] else 0,
         1 if at["bloqueado_tempo"] else 0,
         at["ultimo_tempo_backend"],
+        at["irritacao"],
+        at["tentativas_etapa"],
+        1 if at["encerrado_por_cliente"] else 0,
         at["db_id"]
     ))
 

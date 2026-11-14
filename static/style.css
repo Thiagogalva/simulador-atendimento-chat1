@@ -407,3 +407,41 @@ button:active {
         white-space: normal;
     }
 }
+/* Humor do cliente simulado */
+.msg-cliente.humor-impaciente {
+    background: #fff4e0;
+    border-color: #f5c77e;
+}
+
+.msg-cliente.humor-atritado {
+    background: #fdeaea;
+    border-color: #ef9a9a;
+    font-weight: 600;
+}
+
+.msg-cliente.humor-encerrado {
+    background: #f8d7da;
+    border-color: #e57373;
+    font-weight: 700;
+}
+
+.humor-pill {
+    padding: 1px 8px;
+    border-radius: 10px;
+}
+
+.humor-pill.humor-calmo {
+    background: #e8f5e9;
+    color: #2e7d32;
+}
+
+.humor-pill.humor-impaciente {
+    background: #fff4e0;
+    color: #b26a00;
+}
+
+.humor-pill.humor-atritado,
+.humor-pill.humor-encerrado {
+    background: #fdeaea;
+    color: #c62828;
+}

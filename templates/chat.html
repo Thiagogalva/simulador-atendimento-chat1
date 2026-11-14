@@ -25,6 +25,7 @@
         <div class="messages" id="messages"></div>
 
         <div class="painel-metricas" id="painel-metricas">
+            <span>Cliente: <b id="m-humor" class="humor-pill humor-calmo">Calmo</b></span>
             <span>Coerência: <b id="m-coerencia">0</b></span>
             <span>Empatia: <b id="m-empatia">0</b></span>
             <span>Tempo: <b id="m-tempo">0</b></span>
@@ -70,6 +71,9 @@ function prepararDadosIniciais() {
     dados.forEach((at, index) => {
         at.finalizado = Boolean(at.finalizado);
         at.bloqueado_tempo = Boolean(at.bloqueado_tempo);
+        at.encerrado_por_cliente = Boolean(at.encerrado_por_cliente);
+        at.irritacao = Number(at.irritacao || 0);
+        at.humor = at.humor || "calmo";
         at.total_erros = Number(at.total_erros || 0);
         at.media_coerencia = Number(at.media_coerencia || 0);
         at.media_empatia = Number(at.media_empatia || 0);
@@ -136,9 +140,29 @@ function buscarAtendimentoPorId(id) {
     return dados.find(item => item.id === id);
 }
 
+const ROTULO_HUMOR = {
+    calmo: "Calmo",
+    impaciente: "Impaciente",
+    atritado: "Atritado",
+    encerrado: "Desistiu"
+};
+
+function textoFinalizado(at) {
+    return at.encerrado_por_cliente ? "Cliente encerrou" : "Finalizado";
+}
+
+function classeFinalizado(at) {
+    return at.encerrado_por_cliente ? "timer vermelho" : "timer verde";
+}
+
 function atualizarPainel() {
     const at = buscarAtendimentoPorId(atual);
     if (!at) return;
+
+    const humor = at.humor || "calmo";
+    const pill = document.getElementById("m-humor");
+    pill.innerText = ROTULO_HUMOR[humor] || "Calmo";
+    pill.className = "humor-pill humor-" + humor;
 
     document.getElementById("m-coerencia").innerText = Number(at.media_coerencia || 0).toFixed(1);
     document.getElementById("m-empatia").innerText = Number(at.media_empatia || 0).toFixed(1);
@@ -157,6 +181,9 @@ function renderMensagens() {
     at.mensagens.forEach(msg => {
         const div = document.createElement("div");
         div.className = msg.tipo === "cliente" ? "msg-cliente" : "msg-operador";
+        if (msg.tipo === "cliente" && msg.humor) {
+            div.className += " humor-" + msg.humor;
+        }
 
         if (msg.tipo === "operador") {
             let conteudo = msg.texto;
@@ -222,7 +249,9 @@ function atualizarEstadoCampo() {
     if (at.finalizado) {
         campo.disabled = true;
         botao.disabled = true;
-        campo.placeholder = "Este atendimento foi finalizado.";
+        campo.placeholder = at.encerrado_por_cliente
+            ? "O cliente encerrou o atendimento."
+            : "Este atendimento foi finalizado.";
         return;
     }
 
@@ -348,6 +377,9 @@ function enviar() {
         at.nivel = data.nivel || "-";
         at.finalizado = Boolean(data.finalizado);
         at.bloqueado_tempo = Boolean(data.bloqueado_tempo);
+        at.encerrado_por_cliente = Boolean(data.encerrado_por_cliente);
+        at.irritacao = Number(data.irritacao || 0);
+        at.humor = data.humor || "calmo";
 
         if (data.liberado_em !== undefined && data.liberado_em !== null) {
             at.liberadoEm = Number(data.liberado_em);
@@ -399,8 +431,8 @@ function atualizarBadgeAtendimento(at) {
     if (!el) return;
 
     if (at.finalizado) {
-        el.innerText = "Finalizado";
-        el.className = "timer verde";
+        el.innerText = textoFinalizado(at);
+        el.className = classeFinalizado(at);
         return;
     }
 
@@ -442,7 +474,9 @@ function mostrarTelaFinal() {
 
     const cardsAtendimentos = dados.map(at => {
         let status = "Finalizado";
-        if (at.bloqueado_tempo && !at.finalizado) {
+        if (at.encerrado_por_cliente) {
+            status = "Encerrado pelo cliente (insatisfeito)";
+        } else if (at.bloqueado_tempo && !at.finalizado) {
             status = "Encerrado por tempo";
         }
 
@@ -450,6 +484,7 @@ function mostrarTelaFinal() {
             <div class="resultado-card">
                 <h3>Cliente ${at.id + 1} - ${escaparHtml(at.titulo)}</h3>
                 <p><b>Status:</b> ${escaparHtml(status)}</p>
+                <p><b>Humor final do cliente:</b> ${escaparHtml(ROTULO_HUMOR[at.humor] || "Calmo")}</p>
                 <p><b>Nota:</b> ${Number(at.nota || 0).toFixed(1)}</p>
                 <p><b>Coerência:</b> ${Number(at.media_coerencia || 0).toFixed(1)}</p>
                 <p><b>Empatia:</b> ${Number(at.media_empatia || 0).toFixed(1)}</p>
@@ -510,8 +545,8 @@ function atualizarTimers() {
         if (!el) return;
 
         if (at.finalizado) {
-            el.innerText = "Finalizado";
-            el.className = "timer verde";
+            el.innerText = textoFinalizado(at);
+            el.className = classeFinalizado(at);
             return;
         }
 

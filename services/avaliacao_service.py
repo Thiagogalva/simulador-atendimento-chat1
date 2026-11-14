@@ -103,6 +103,7 @@ def calcular_nota(at: dict) -> int:
     bonus_empatia = at["media_empatia"]
     bonus_tempo = at["media_tempo"]
     penalidade_erros = at["total_erros"] * 5
+    penalidade_cliente = 20 if at.get("encerrado_por_cliente") else 0
 
-    nota = base + bonus_empatia + bonus_tempo - penalidade_erros
+    nota = base + bonus_empatia + bonus_tempo - penalidade_erros - penalidade_cliente
     return max(0, min(100, round(nota)))

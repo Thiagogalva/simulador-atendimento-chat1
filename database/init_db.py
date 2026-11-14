@@ -1,5 +1,24 @@
 from database.connection import get_connection
 
+# Colunas adicionadas depois da primeira versão (aplicadas também a bancos já existentes).
+COLUNAS_NOVAS = {
+    "atendimentos": {
+        "irritacao": "INTEGER NOT NULL DEFAULT 0",
+        "tentativas_etapa": "INTEGER NOT NULL DEFAULT 0",
+        "encerrado_por_cliente": "INTEGER NOT NULL DEFAULT 0",
+    },
+    "mensagens": {
+        "humor": "TEXT",
+    },
+}
+
+def garantir_colunas(cursor):
+    for tabela, colunas in COLUNAS_NOVAS.items():
+        existentes = {row["name"] for row in cursor.execute(f"PRAGMA table_info({tabela})")}
+        for nome, definicao in colunas.items():
+            if nome not in existentes:
+                cursor.execute(f"ALTER TABLE {tabela} ADD COLUMN {nome} {definicao}")
+
 def init_db():
     conn = get_connection()
     cursor = conn.cursor()
@@ -58,6 +77,8 @@ def init_db():
             FOREIGN KEY (atendimento_id) REFERENCES atendimentos (id)
         )
     """)
+
+    garantir_colunas(cursor)
 
     conn.commit()
     conn.close()

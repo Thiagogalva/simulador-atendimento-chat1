@@ -35,18 +35,18 @@ PROXIMO_PASSO = re.compile(
     r"dias? uteis|\d+ (horas?|dias?)|ate \d+)\b"
 )
 
-# (padrão, penalidade, aviso)
+# (sinal, padrão, penalidade, aviso)
 TOM_INADEQUADO = [
-    (re.compile(r"\b(nao e comigo|nao e problema meu|problema e seu|problema seu|se vira|"
+    ("hostil", re.compile(r"\b(nao e comigo|nao e problema meu|problema e seu|problema seu|se vira|"
                 r"resolve ai|nao me interessa|nao ligo|sua culpa|voce errou|voce que errou)\b"),
      10, "Evite frases que passam descaso ou culpam o cliente. Reconheça a situação e ofereça um caminho."),
-    (re.compile(r"\b(ja falei|ja disse|ja expliquei|como eu disse)\b"),
+    ("cobranca", re.compile(r"\b(ja falei|ja disse|ja expliquei|como eu disse)\b"),
      6, "Evite cobrar o cliente por não ter entendido. Explique de novo com paciência."),
-    (re.compile(r"\bcalma\b"),
+    ("calma", re.compile(r"\bcalma\b"),
      5, 'Evite pedir "calma" ao cliente; demonstre que entende a urgência.'),
-    (re.compile(r"\b(nao sei|nao posso fazer nada|nao tem como|nao tem o que fazer|nao tenho como)\b"),
+    ("descaso", re.compile(r"\b(nao sei|nao posso fazer nada|nao tem como|nao tem o que fazer|nao tenho como)\b"),
      5, 'Evite "não sei"/"não tem como" sem alternativa. Explique o motivo e o próximo passo.'),
-    (re.compile(r"\b(kk+|rs+|mano|vlw|tmj|opa|eae|valeu)\b"),
+    ("giria", re.compile(r"\b(kk+|rs+|mano|vlw|tmj|opa|eae|valeu)\b"),
      4, "Use linguagem profissional; evite gírias e risadas no atendimento."),
 ]
 
@@ -59,13 +59,21 @@ def _proporcao_maiusculas(texto: str) -> float:
 
 
 def avaliar_tom(resposta: str, respostas_anteriores=None):
+    """Retorna (empatia, avisos). Ver `analisar_tom` para os sinais detalhados."""
+    analise = analisar_tom(resposta, respostas_anteriores)
+    return analise["empatia"], analise["avisos"]
+
+
+def analisar_tom(resposta: str, respostas_anteriores=None) -> dict:
     """
-    Retorna (empatia, avisos). `respostas_anteriores` são as respostas já enviadas pelo operador
-    neste atendimento (usadas para detectar repetição).
+    Retorna {"empatia": 0-20, "avisos": [...], "sinais": {...}}.
+    `respostas_anteriores` são as respostas já enviadas pelo operador neste atendimento
+    (usadas para detectar repetição). Os sinais alimentam a reação do cliente simulado.
     """
     respostas_anteriores = respostas_anteriores or []
     normalizada = normalizar_texto(resposta)
     avisos = []
+    sinais = set()
 
     pontos = 0
     if ACOLHIMENTO.search(normalizada):
@@ -78,22 +86,26 @@ def avaliar_tom(resposta: str, respostas_anteriores=None):
         pontos += 3
 
     penalidade = 0
-    for padrao, valor, aviso in TOM_INADEQUADO:
+    for sinal, padrao, valor, aviso in TOM_INADEQUADO:
         if padrao.search(normalizada):
             penalidade += valor
             avisos.append(aviso)
+            sinais.add(sinal)
 
     if _proporcao_maiusculas(resposta) >= 0.6:
         penalidade += 8
         avisos.append("Evite escrever em letras maiúsculas; pode soar como grito.")
+        sinais.add("gritando")
 
     if resposta.count("!") >= 3:
         penalidade += 3
         avisos.append("Evite excesso de exclamações; mantenha um tom calmo e profissional.")
+        sinais.add("exclamacoes")
 
     if normalizada and normalizada in {normalizar_texto(r) for r in respostas_anteriores}:
         penalidade += 6
         avisos.append("Resposta repetida. Adapte o texto ao que o cliente acabou de dizer.")
+        sinais.add("repetida")
 
     empatia = max(0, min(20, pontos - penalidade))
-    return empatia, avisos
+    return {"empatia": empatia, "avisos": avisos, "sinais": sinais}

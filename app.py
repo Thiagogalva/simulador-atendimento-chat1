@@ -28,10 +28,16 @@ from services.texto_service import (
 )
 from services.avaliacao_service import (
     calcular_coerencia,
-    avaliar_empatia,
     avaliar_tempo,
     calcular_nota,
     classificar_nivel
+)
+from services.tom_service import analisar_tom
+from services.cliente_service import (
+    decidir_reacao,
+    mensagem_encerramento,
+    mensagem_repeticao,
+    mensagem_proxima
 )
 
 app = Flask(__name__)
@@ -62,6 +68,9 @@ def resposta_api_atendimento(at, qtd_erros=0, erros_detalhados=None, avisos=None
         "bloqueado_tempo": at["bloqueado_tempo"],
         "liberado_em": at["liberado_em"],
         "ultimo_tempo_backend": at["ultimo_tempo_backend"],
+        "irritacao": at["irritacao"],
+        "humor": at["humor"],
+        "encerrado_por_cliente": at["encerrado_por_cliente"],
         "servidor_agora": time.time()
     }
 
@@ -187,8 +196,9 @@ def responder():
 
     qtd_erros = len(erros)
     coerencia = calcular_coerencia(resposta, at)
-    empatia, avisos_tom = avaliar_empatia(resposta, respostas_anteriores)
-    avisos.extend(avisos_tom)
+    analise_tom = analisar_tom(resposta, respostas_anteriores)
+    empatia = analise_tom["empatia"]
+    avisos.extend(analise_tom["avisos"])
     nota_tempo = avaliar_tempo(tempo_resposta_segundos)
 
     if not pontuacao_ok:
@@ -226,21 +236,54 @@ def responder():
     at["media_empatia"] = sum(a["empatia"] for a in at["avaliacoes"]) / at["total_respostas"]
     at["media_tempo"] = sum(a["tempo"] for a in at["avaliacoes"]) / at["total_respostas"]
 
-    at["etapa_atual"] += 1
     at["bloqueado_tempo"] = False
 
-    if at["etapa_atual"] < len(at["fluxo"]):
-        proxima_msg = at["fluxo"][at["etapa_atual"]]["cliente"]
-        adicionar_mensagem(at["db_id"], "cliente", proxima_msg)
-        at["mensagens"].append({
-            "tipo": "cliente",
-            "texto": proxima_msg
-        })
-        at["resposta_esperada"] = at["fluxo"][at["etapa_atual"]]["resposta_esperada"]
-        at["ultimo_tempo_backend"] = time.time()
-    else:
+    # O cliente simulado reage à qualidade da resposta (ver services/cliente_service.py).
+    decisao = decidir_reacao(
+        coerencia=coerencia,
+        sinais=analise_tom["sinais"],
+        qtd_erros=qtd_erros,
+        tempo_nota=nota_tempo,
+        palavras=len(resposta.split()),
+        irritacao=at["irritacao"],
+        tentativas_etapa=at["tentativas_etapa"],
+        ultima_etapa=(etapa == len(at["fluxo"]) - 1)
+    )
+    semente = at["db_id"] + etapa + at["tentativas_etapa"]
+    at["irritacao"] = decisao["irritacao"]
+    agora = time.time()
+
+    def responder_como_cliente(texto, humor):
+        adicionar_mensagem(at["db_id"], "cliente", texto, humor)
+        at["mensagens"].append({"tipo": "cliente", "texto": texto, "humor": humor})
+
+    if decisao["acao"] == "encerrar":
+        responder_como_cliente(mensagem_encerramento(semente), "encerrado")
         at["finalizado"] = True
-        at["ultimo_tempo_backend"] = time.time()
+        at["encerrado_por_cliente"] = True
+        at["ultimo_tempo_backend"] = agora
+
+    elif decisao["acao"] == "repetir":
+        # Mesma etapa: o operador precisa responder de novo ao que o cliente perguntou.
+        at["tentativas_etapa"] += 1
+        responder_como_cliente(
+            mensagem_repeticao(decisao, at["fluxo"][etapa]["cliente"], semente),
+            decisao["humor"]
+        )
+        at["ultimo_tempo_backend"] = agora
+
+    else:
+        at["tentativas_etapa"] = 0
+        at["etapa_atual"] += 1
+
+        if at["etapa_atual"] < len(at["fluxo"]):
+            proxima_msg = at["fluxo"][at["etapa_atual"]]["cliente"]
+            humor_msg = decisao["humor"] if decisao["irritacao"] >= 30 else None
+            responder_como_cliente(mensagem_proxima(decisao, proxima_msg, semente), humor_msg)
+            at["resposta_esperada"] = at["fluxo"][at["etapa_atual"]]["resposta_esperada"]
+        else:
+            at["finalizado"] = True
+        at["ultimo_tempo_backend"] = agora
 
     salvar_estado_atendimento(at)
 

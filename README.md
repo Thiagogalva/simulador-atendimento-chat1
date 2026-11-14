@@ -7,6 +7,17 @@ Sistema de simulação de atendimento por chat para treinamento de operadores. C
 - **Tempo** – rapidez da resposta (limite por turno em `TEMPO_LIMITE_CHAT`);
 - **Linguagem** – ortografia (pyspellchecker + vocabulário do domínio), abreviações proibidas, letra maiúscula inicial, pontuação final e tamanho mínimo.
 
+## Cliente simulado reativo
+
+Cada cliente tem um nível de irritação (0-100) e um humor (**calmo**, **impaciente**, **atritado**) exibido no painel e nas bolhas de mensagem:
+
+- resposta **fora de contexto, seca, hostil ou gritando** → o cliente reage e **repete a pergunta** (o passo não avança);
+- resposta **incompleta, com descaso, gíria ou repetida** → o cliente segue, mas comenta o problema;
+- resposta **boa** → o cliente se acalma e o atendimento avança;
+- irritação ≥ 85, ou 3 falhas no mesmo passo → o cliente **desiste e pede um supervisor** (atendimento encerrado, nota com penalidade).
+
+As regras ficam em `services/cliente_service.py` (determinísticas, sem API) e as frases podem ser editadas lá.
+
 Os atendimentos são liberados em sequência (`INTERVALO_ENTRE_CHATS`) e, ao final, é exibido o resultado geral.
 
 ## Como rodar
@@ -42,7 +53,7 @@ config.py         configurações
 data/             roteiros dos atendimentos (BASE_ATENDIMENTOS)
 database/         conexão e criação das tabelas
 repositories/     acesso ao banco (usuários, atendimentos, mensagens, avaliações)
-services/         regras: texto (ortografia), semântica, tom, avaliação (notas), tempo
+services/         regras: texto (ortografia), semântica, tom, cliente reativo, avaliação (notas), tempo
 tests/            testes automatizados (python -m unittest discover -s tests -t .)
 templates/ static/  interface do chat
 ```
