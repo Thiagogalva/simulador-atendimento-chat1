@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block titulo %}Código de recuperação - Simulador{% endblock %}
+{% block conteudo %}
+<section class="cartao cartao-auth">
+    <h1>Guarde seu código de recuperação</h1>
+    <p>Se você esquecer a senha, este código permite redefini-la sem precisar de ninguém.
+       <b>Ele aparece só desta vez.</b> Anote ou salve em um gerenciador de senhas.</p>
+    <p class="codigo-recuperacao" id="codigo">{{ codigo }}</p>
+    <p class="texto-auxiliar">Quem tiver este código e o seu usuário consegue trocar a sua senha. Não o compartilhe.
+       Você pode gerar um novo (e invalidar este) na página Conta.</p>
+    <p><a class="botao-primario" href="{{ url_for('index') }}">Já guardei, continuar</a></p>
+</section>
+{% endblock %}

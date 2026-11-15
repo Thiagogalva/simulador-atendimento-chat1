@@ -12,7 +12,10 @@ from database.init_db import init_db
 from repositories.usuario_repository import garantir_usuario_no_banco
 from repositories.operador_repository import buscar_operador_por_id
 from routes.auth import bp as auth_bp
+from routes.conta import bp as conta_bp
 from routes.painel import bp as painel_bp
+from routes.supervisor import bp as supervisor_bp
+from services.auth_service import fingerprint_senha
 from routes.seguranca import csrf_valido, token_csrf
 from services.dica_service import NIVEL_MAXIMO, gerar_dica
 from repositories.atendimento_repository import (
@@ -60,7 +63,9 @@ app.config.update(
     SESSION_COOKIE_SECURE=SESSION_COOKIE_SECURE,
 )
 app.register_blueprint(auth_bp)
+app.register_blueprint(conta_bp)
 app.register_blueprint(painel_bp)
+app.register_blueprint(supervisor_bp)
 
 if SECRET_KEY == "dev-only-troque-em-producao" and not DEBUG:
     app.logger.warning("SECRET_KEY padrão em uso. Defina a variável de ambiente SECRET_KEY em produção.")
@@ -100,7 +105,8 @@ def resposta_api_atendimento(at, qtd_erros=0, erros_detalhados=None, avisos=None
         "servidor_agora": time.time()
     }
 
-ENDPOINTS_PUBLICOS = {"auth.login", "auth.registro", "static"}
+ENDPOINTS_PUBLICOS = {"auth.login", "auth.registro", "auth.recuperar", "static"}
+ENDPOINTS_SENHA_TEMPORARIA = {"conta.senha", "auth.sair"}
 ENDPOINTS_JSON = {"responder", "dica", "painel.finalizar"}
 
 
@@ -114,7 +120,9 @@ def exigir_login():
     if session.get("operador_id"):
         operador = buscar_operador_por_id(session["operador_id"])
 
-    if operador is None:
+    # Conta removida/desativada ou senha trocada em outro lugar: a sessão deixa de valer.
+    if (operador is None or not operador["ativo"]
+            or session.get("sv") != fingerprint_senha(operador["senha_hash"])):
         session.clear()
         if request.endpoint in ENDPOINTS_JSON:
             return jsonify({"erro": "Sessão expirada. Faça login novamente."}), 401
@@ -122,9 +130,29 @@ def exigir_login():
 
     g.operador = operador
 
+    # Senha temporária (definida por um supervisor): só libera depois de escolher a própria senha.
+    if operador["senha_temporaria"] and request.endpoint not in ENDPOINTS_SENHA_TEMPORARIA:
+        if request.endpoint in ENDPOINTS_JSON:
+            return jsonify({"erro": "Defina uma nova senha para continuar."}), 403
+        return redirect(url_for("conta.senha"))
+
     if request.method == "POST" and request.endpoint not in ENDPOINTS_JSON and not csrf_valido():
         return "Requisição inválida (CSRF). Volte e tente novamente.", 400
     return None
+
+
+@app.errorhandler(403)
+def proibido(_erro):
+    if request.path in ("/responder", "/dica", "/finalizar"):
+        return jsonify({"erro": "Acesso negado."}), 403
+    return render_template("erro.html", titulo="Acesso negado",
+                           mensagem="Você não tem permissão para acessar esta página."), 403
+
+
+@app.errorhandler(404)
+def nao_encontrado(_erro):
+    return render_template("erro.html", titulo="Página não encontrada",
+                           mensagem="O endereço informado não existe."), 404
 
 
 @app.context_processor

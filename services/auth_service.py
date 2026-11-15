@@ -1,5 +1,7 @@
 """Cadastro, senha e proteção contra tentativas em massa dos operadores."""
+import hashlib
 import re
+import secrets
 import threading
 import time
 
@@ -37,6 +39,39 @@ def validar_cadastro(usuario: str, nome: str, senha: str, confirmacao: str) -> l
         erros.append("A confirmação da senha não confere.")
 
     return erros
+
+
+def validar_nova_senha(senha: str, confirmacao: str) -> list:
+    senha = senha or ""
+    if not (SENHA_MINIMA <= len(senha) <= SENHA_MAXIMA):
+        return [f"A senha deve ter entre {SENHA_MINIMA} e {SENHA_MAXIMA} caracteres."]
+    if senha != confirmacao:
+        return ["A confirmação da senha não confere."]
+    return []
+
+
+# Alfabeto sem caracteres ambíguos (0/O, 1/I/L): códigos fáceis de copiar à mão.
+_ALFABETO_CODIGO = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+
+
+def gerar_codigo_recuperacao() -> str:
+    """16 caracteres (~80 bits) no formato XXXX-XXXX-XXXX-XXXX."""
+    letras = "".join(secrets.choice(_ALFABETO_CODIGO) for _ in range(16))
+    return "-".join(letras[i:i + 4] for i in range(0, 16, 4))
+
+
+def normalizar_codigo(codigo: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", (codigo or "").upper())
+
+
+def gerar_senha_temporaria() -> str:
+    letras = "".join(secrets.choice(_ALFABETO_CODIGO) for _ in range(12))
+    return "-".join(letras[i:i + 4] for i in range(0, 12, 4))
+
+
+def fingerprint_senha(senha_hash: str) -> str:
+    """Muda sempre que a senha muda; usado para derrubar sessões antigas."""
+    return hashlib.sha256((senha_hash or "").encode()).hexdigest()[:20]
 
 
 def gerar_hash(senha: str) -> str:
@@ -84,3 +119,6 @@ class LimitadorDeTentativas:
 
 
 limitador_login = LimitadorDeTentativas()
+
+
+limitador_recuperacao = LimitadorDeTentativas()

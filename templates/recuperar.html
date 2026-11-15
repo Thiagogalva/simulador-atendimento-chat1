@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block titulo %}Recuperar senha - Simulador{% endblock %}
+{% block conteudo %}
+<section class="cartao cartao-auth">
+    <h1>Recuperar senha</h1>
+    {% if erros %}
+    <ul class="alerta-erro" role="alert">{% for e in erros %}<li>{{ e }}</li>{% endfor %}</ul>
+    {% endif %}
+    <form method="post" class="form-auth" autocomplete="off">
+        <label>Usuário
+            <input type="text" name="usuario" value="{{ usuario }}" autocomplete="username" required autofocus>
+        </label>
+        <label>Código de recuperação (XXXX-XXXX-XXXX-XXXX)
+            <input type="text" name="codigo" autocomplete="off" required>
+        </label>
+        <label>Nova senha (mínimo 8 caracteres)
+            <input type="password" name="senha" autocomplete="new-password" minlength="8" required>
+        </label>
+        <label>Confirmar nova senha
+            <input type="password" name="confirmacao" autocomplete="new-password" minlength="8" required>
+        </label>
+        <button type="submit" class="botao-primario">Redefinir senha</button>
+    </form>
+    <p class="texto-auxiliar">Sem o código? Peça a um supervisor para redefinir a sua senha.</p>
+    <p class="texto-auxiliar"><a href="{{ url_for('auth.login') }}">Voltar ao login</a></p>
+</section>
+{% endblock %}

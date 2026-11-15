@@ -546,3 +546,22 @@ button:active {
     padding: 6px 12px; cursor: pointer; font-size: 14px;
 }
 .botao-dica:disabled { opacity: 0.6; cursor: default; }
+
+/* Conta, recuperação e supervisor */
+.alerta-ok {
+    background: #e8f5e9; color: #1b5e20; border: 1px solid #a5d6a7; border-radius: 8px;
+    padding: 10px 14px; margin: 0 0 14px; font-size: 14px;
+}
+.codigo-recuperacao {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 24px; letter-spacing: 0.08em;
+    background: #f5f7fa; border: 1px dashed #90a4ae; border-radius: 8px; padding: 14px; text-align: center;
+    user-select: all; word-break: break-all;
+}
+.destaque-senha { border-color: #ffb300; background: #fffde7; }
+.acoes { white-space: normal !important; }
+.acoes .form-inline { margin-right: 6px; }
+.botao-pequeno {
+    background: #fff; border: 1px solid #c9d0db; border-radius: 6px; padding: 4px 8px;
+    font-size: 12px; cursor: pointer; margin-bottom: 4px;
+}
+.botao-pequeno:hover { background: #eef3f9; }

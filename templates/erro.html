@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block titulo %}{{ titulo }} - Simulador{% endblock %}
+{% block conteudo %}
+<section class="cartao">
+    <h1>{{ titulo }}</h1>
+    <p>{{ mensagem }}</p>
+    <p><a class="botao-primario" href="{{ url_for('index') }}">Voltar ao início</a></p>
+</section>
+{% endblock %}

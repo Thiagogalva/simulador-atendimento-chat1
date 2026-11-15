@@ -22,5 +22,10 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 # Se definido, o cadastro de operadores exige este código de convite.
 CODIGO_CONVITE = os.environ.get("CODIGO_CONVITE", "").strip()
 
+# Usuários (logins) que são sempre supervisores, separados por vírgula. Serve para criar o primeiro supervisor.
+SUPERVISORES = frozenset(
+    u.strip().lower() for u in os.environ.get("SUPERVISORES", "").split(",") if u.strip()
+)
+
 # Cookies de sessão: Lax contra CSRF; Secure quando servido por HTTPS (Vercel ou SESSION_COOKIE_SECURE=1).
 SESSION_COOKIE_SECURE = bool(os.environ.get("VERCEL")) or os.environ.get("SESSION_COOKIE_SECURE") == "1"

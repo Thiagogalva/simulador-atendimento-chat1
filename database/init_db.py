@@ -127,6 +127,15 @@ def _tabelas(pk: str) -> list:
             UNIQUE(operador_id, iniciada_em),
             FOREIGN KEY (operador_id) REFERENCES operadores (id)
         )""",
+        f"""
+        CREATE TABLE IF NOT EXISTS auditoria (
+            id {pk},
+            ator_id INTEGER,
+            acao TEXT NOT NULL,
+            alvo_id INTEGER,
+            detalhes TEXT,
+            criado_em TEXT NOT NULL
+        )""",
         "CREATE INDEX IF NOT EXISTS idx_simulacoes_operador ON simulacoes (operador_id, finalizada_em)",
         "CREATE INDEX IF NOT EXISTS idx_simulacoes_data ON simulacoes (finalizada_em)",
     ]

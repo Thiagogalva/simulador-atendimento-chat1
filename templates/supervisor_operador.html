@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block titulo %}{{ alvo.nome }} - Supervisor{% endblock %}
+{% block conteudo %}
+<p><a href="{{ url_for('supervisor.painel') }}">&larr; Voltar ao painel</a></p>
+<h1>{{ alvo.nome }} <small>({{ alvo.usuario }})</small></h1>
+
+<section class="grade-resumo">
+    <div class="cartao-metrica"><span>Média (avaliações)</span><b>{{ media if media is not none else '-' }}</b></div>
+    <div class="cartao-metrica"><span>Melhor nota</span><b>{{ melhor if melhor is not none else '-' }}</b></div>
+    <div class="cartao-metrica"><span>Simulações</span><b>{{ simulacoes|length }}</b></div>
+    <div class="cartao-metrica"><span>Status</span><b>{{ 'Ativo' if alvo.ativo else 'Desativado' }}</b></div>
+</section>
+
+<section class="cartao">
+    <h2>Simulações</h2>
+    {% if not simulacoes %}
+    <p class="texto-auxiliar">Este operador ainda não concluiu simulações.</p>
+    {% else %}
+    <div class="tabela-rolagem">
+    <table class="tabela">
+        <thead><tr><th>Data</th><th>Modo</th><th>Nota</th><th>Nível</th><th>Coerência</th><th>Empatia</th><th>Tempo</th><th>Erros</th></tr></thead>
+        <tbody>
+        {% for s in simulacoes %}
+            <tr>
+                <td><time class="data-local" datetime="{{ s.finalizada_em }}">{{ s.finalizada_em }}</time></td>
+                <td><span class="etiqueta-modo etiqueta-{{ s.modo }}">{{ 'Treino' if s.modo == 'treino' else 'Avaliação' }}</span></td>
+                <td><b>{{ s.nota_geral }}</b></td><td>{{ s.nivel }}</td>
+                <td>{{ s.media_coerencia }}</td><td>{{ s.media_empatia }}</td><td>{{ s.media_tempo }}</td><td>{{ s.total_erros }}</td>
+            </tr>
+            <tr class="linha-detalhe"><td colspan="8">
+                <details><summary>Ver atendimentos ({{ s.total_atendimentos }})</summary>
+                <ul class="lista-detalhe">
+                {% for d in s.detalhes %}
+                    <li><b>Cliente {{ d.id + 1 }} - {{ d.titulo }}</b>: nota {{ d.nota }} ({{ d.nivel }}) · {{ d.status }}</li>
+                {% endfor %}
+                </ul></details>
+            </td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}

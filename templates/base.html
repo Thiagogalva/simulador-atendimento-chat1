@@ -14,7 +14,8 @@
         <a href="{{ url_for('index') }}">Nova simulação</a>
         <a href="{{ url_for('painel.historico') }}">Meu histórico</a>
         <a href="{{ url_for('painel.ranking_view') }}">Ranking</a>
-        <span class="topbar-usuario">{{ g.operador.nome }}</span>
+        {% if g.operador.e_supervisor %}<a href="{{ url_for('supervisor.painel') }}">Supervisor</a>{% endif %}
+        <a href="{{ url_for('conta.senha') }}" class="topbar-usuario">{{ g.operador.nome }}</a>
         <form method="post" action="{{ url_for('auth.sair') }}" class="form-inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="link-botao">Sair</button>
@@ -23,6 +24,11 @@
 </header>
 {% endif %}
 <main class="pagina-conteudo">
+    {% with mensagens = get_flashed_messages(with_categories=true) %}
+        {% for categoria, texto in mensagens %}
+        <p class="{{ 'alerta-erro' if categoria == 'erro' else 'alerta-ok' }}" role="status">{{ texto }}</p>
+        {% endfor %}
+    {% endwith %}
     {% block conteudo %}{% endblock %}
 </main>
 <script>

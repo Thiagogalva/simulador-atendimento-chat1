@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block titulo %}Supervisor - Simulador{% endblock %}
+{% block conteudo %}
+<h1>Painel do supervisor</h1>
+
+{% if senha_gerada %}
+<section class="cartao destaque-senha" role="alert">
+    <h2>Senha temporária de {{ senha_gerada.nome }} ({{ senha_gerada.usuario }})</h2>
+    <p class="codigo-recuperacao">{{ senha_gerada.senha }}</p>
+    <p>Entregue ao operador por um canal seguro. <b>Ela aparece só agora.</b> No primeiro acesso ele será obrigado a escolher uma nova senha.</p>
+</section>
+{% endif %}
+
+<section class="grade-resumo">
+    <div class="cartao-metrica"><span>Operadores ativos</span><b>{{ resumo.operadores }}</b></div>
+    <div class="cartao-metrica"><span>Avaliações</span><b>{{ resumo.avaliacoes }}</b></div>
+    <div class="cartao-metrica"><span>Treinos</span><b>{{ resumo.treinos }}</b></div>
+    <div class="cartao-metrica"><span>Média geral</span><b>{{ resumo.media if resumo.media is not none else '-' }}</b></div>
+</section>
+
+<p>
+    <a class="botao-primario" href="{{ url_for('supervisor.exportar_csv') }}">Exportar simulações (CSV)</a>
+</p>
+
+<section class="cartao">
+    <h2>Operadores</h2>
+    <div class="tabela-rolagem">
+    <table class="tabela">
+        <thead>
+            <tr><th>Operador</th><th>Papel</th><th>Status</th><th>Avaliações</th><th>Média</th><th>Treinos</th><th>Última</th><th>Ações</th></tr>
+        </thead>
+        <tbody>
+        {% for o in operadores %}
+            <tr>
+                <td><a href="{{ url_for('supervisor.detalhe', operador_id=o.id) }}">{{ o.nome }}</a><br><small>{{ o.usuario }}</small></td>
+                <td>{{ 'Supervisor' if o.e_supervisor else 'Operador' }}{% if o.supervisor_fixo %} <small>(fixo)</small>{% endif %}</td>
+                <td>{{ 'Ativo' if o.ativo else 'Desativado' }}</td>
+                <td>{{ o.avaliacoes }}</td>
+                <td>{{ ('%.1f'|format(o.media)) if o.media is not none else '-' }}</td>
+                <td>{{ o.treinos }}</td>
+                <td>{% if o.ultima %}<time class="data-local" datetime="{{ o.ultima }}">{{ o.ultima }}</time>{% else %}-{% endif %}</td>
+                <td class="acoes">
+                {% if o.id != meu_id %}
+                    <form method="post" action="{{ url_for('supervisor.redefinir_senha', operador_id=o.id) }}" class="form-inline"
+                          onsubmit="return confirm('Gerar uma senha temporária para {{ o.nome|e }}? A senha atual deixará de funcionar.')">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="botao-pequeno">Redefinir senha</button>
+                    </form>
+                    <form method="post" action="{{ url_for('supervisor.alterar_ativo', operador_id=o.id) }}" class="form-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="ativo" value="{{ '0' if o.ativo else '1' }}">
+                        <button type="submit" class="botao-pequeno">{{ 'Desativar' if o.ativo else 'Reativar' }}</button>
+                    </form>
+                    {% if not o.supervisor_fixo %}
+                    <form method="post" action="{{ url_for('supervisor.alterar_papel', operador_id=o.id) }}" class="form-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="papel" value="{{ 'operador' if o.e_supervisor else 'supervisor' }}">
+                        <button type="submit" class="botao-pequeno">{{ 'Tornar operador' if o.e_supervisor else 'Tornar supervisor' }}</button>
+                    </form>
+                    {% endif %}
+                {% else %}
+                    <small>você</small>
+                {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</section>
+
+<section class="cartao">
+    <h2>Atividade recente do painel</h2>
+    {% if not auditoria %}
+    <p class="texto-auxiliar">Nenhuma ação registrada ainda.</p>
+    {% else %}
+    <ul class="lista-detalhe">
+        {% for a in auditoria %}
+        <li><time class="data-local" datetime="{{ a.criado_em }}">{{ a.criado_em }}</time> —
+            <b>{{ a.ator or '?' }}</b> {{ a.acao }}{% if a.alvo %} de <b>{{ a.alvo }}</b>{% endif %}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</section>
+{% endblock %}

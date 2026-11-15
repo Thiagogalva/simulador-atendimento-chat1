@@ -134,3 +134,25 @@ def posicao_do_operador(operador_id: int, periodo: str = "geral"):
         if item["operador_id"] == operador_id:
             return item["posicao"], len(lista)
     return None, len(lista)
+
+
+def listar_todas_as_simulacoes() -> list:
+    """Todas as simulações com o operador (para exportação do supervisor). Mais recentes primeiro."""
+    conn = get_connection()
+    try:
+        linhas = conn.cursor().execute("""
+            SELECT s.*, o.usuario AS usuario, o.nome AS nome
+            FROM simulacoes s
+            JOIN operadores o ON o.id = s.operador_id
+            ORDER BY s.finalizada_em DESC, s.id DESC
+        """).fetchall()
+    finally:
+        conn.close()
+
+    resultado = []
+    for r in linhas:
+        item = _simulacao_para_dict(r)
+        item["usuario"] = r["usuario"]
+        item["nome"] = r["nome"]
+        resultado.append(item)
+    return resultado

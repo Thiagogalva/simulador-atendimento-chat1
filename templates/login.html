@@ -13,6 +13,7 @@
         </label>
         <button type="submit" class="botao-primario">Entrar</button>
     </form>
+    <p class="texto-auxiliar"><a href="{{ url_for('auth.recuperar') }}">Esqueci minha senha</a></p>
     <p class="texto-auxiliar">Ainda não tem conta? <a href="{{ url_for('auth.registro') }}">Cadastre-se</a></p>
 </section>
 {% endblock %}
