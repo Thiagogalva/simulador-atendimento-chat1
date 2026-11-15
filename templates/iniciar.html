@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block titulo %}Nova simulação - Simulador{% endblock %}
+{% block conteudo %}
+<h1>Nova simulação</h1>
+
+{% if erro %}<p class="alerta-erro" role="alert">{{ erro }}</p>{% endif %}
+
+{% if em_andamento %}
+<section class="cartao">
+    <p>Você tem uma simulação em andamento (modo <b>{{ 'treino' if em_andamento == 'treino' else 'avaliação' }}</b>).</p>
+    <a class="botao-primario" href="{{ url_for('simulacao') }}">Continuar simulação</a>
+</section>
+{% endif %}
+
+<section class="grade-modos">
+    <form method="post" action="{{ url_for('iniciar') }}" class="cartao cartao-modo">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="modo" value="treino">
+        <h2>🎓 Treino</h2>
+        <ul>
+            <li>Sem limite de tempo</li>
+            <li>Todos os atendimentos liberados desde o início</li>
+            <li>Dicas progressivas quando você precisar</li>
+            <li>Não conta para o ranking</li>
+        </ul>
+        <button type="submit" class="botao-primario">Começar treino</button>
+    </form>
+
+    <form method="post" action="{{ url_for('iniciar') }}" class="cartao cartao-modo">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="modo" value="avaliacao">
+        <h2>🏁 Avaliação</h2>
+        <ul>
+            <li>Tempo limite para cada resposta</li>
+            <li>Atendimentos liberados em sequência</li>
+            <li>Sem dicas</li>
+            <li>Conta para o ranking e o histórico</li>
+        </ul>
+        <button type="submit" class="botao-primario">Começar avaliação</button>
+    </form>
+</section>
+
+<p class="texto-auxiliar">Iniciar uma nova simulação descarta a que estiver em andamento.</p>
+{% endblock %}

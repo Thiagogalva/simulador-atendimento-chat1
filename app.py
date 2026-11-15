@@ -13,6 +13,8 @@ from repositories.usuario_repository import garantir_usuario_no_banco
 from repositories.operador_repository import buscar_operador_por_id
 from routes.auth import bp as auth_bp
 from routes.painel import bp as painel_bp
+from routes.seguranca import csrf_valido, token_csrf
+from services.dica_service import NIVEL_MAXIMO, gerar_dica
 from repositories.atendimento_repository import (
     limpar_simulacao_usuario,
     inicializar_atendimentos_usuario,
@@ -24,6 +26,8 @@ from repositories.mensagem_repository import adicionar_mensagem
 from repositories.avaliacao_repository import adicionar_avaliacao
 from services.simulacao_service import reiniciar_simulacao
 from services.tempo_service import (
+    MODO_TREINO,
+    MODOS,
     calcular_inicio_turno,
     atendimento_liberado,
     atendimento_expirado
@@ -81,7 +85,11 @@ def resposta_api_atendimento(at, qtd_erros=0, erros_detalhados=None, avisos=None
         "nota": nota_final,
         "nivel": classificar_nivel(nota_final),
         "tempo_resposta": tempo_resposta,
-        "sugestao": at["resposta_esperada"],
+        "modo": at["modo"],
+        "etapa_atual": at["etapa_atual"],
+        "total_passos": len(at["fluxo"]),
+        "dica_nivel": at["dica_nivel"],
+        "dicas_usadas": at["dicas_usadas"],
         "finalizado": at["finalizado"],
         "bloqueado_tempo": at["bloqueado_tempo"],
         "liberado_em": at["liberado_em"],
@@ -93,7 +101,7 @@ def resposta_api_atendimento(at, qtd_erros=0, erros_detalhados=None, avisos=None
     }
 
 ENDPOINTS_PUBLICOS = {"auth.login", "auth.registro", "static"}
-ENDPOINTS_JSON = {"responder", "painel.finalizar"}
+ENDPOINTS_JSON = {"responder", "dica", "painel.finalizar"}
 
 
 @app.before_request
@@ -113,31 +121,129 @@ def exigir_login():
         return redirect(url_for("auth.login"))
 
     g.operador = operador
+
+    if request.method == "POST" and request.endpoint not in ENDPOINTS_JSON and not csrf_valido():
+        return "Requisição inválida (CSRF). Volte e tente novamente.", 400
     return None
+
+
+@app.context_processor
+def injetar_csrf():
+    return {"csrf_token": token_csrf}
+
+
+CAMPOS_PRIVADOS = ("fluxo", "resposta_esperada", "palavras_criticas", "avaliacoes")
+
+
+def atendimento_publico(at: dict) -> dict:
+    """O que pode ir para o navegador: nunca o roteiro nem as respostas esperadas."""
+    publico = {k: v for k, v in at.items() if k not in CAMPOS_PRIVADOS}
+    publico["total_passos"] = len(at["fluxo"])
+    return publico
+
+def simulacao_em_andamento():
+    """Modo da simulação ainda não concluída desta sessão, ou None."""
+    iniciada_em = session.get("simulacao_iniciada_em")
+    if iniciada_em is None:
+        return None
+    atendimentos = listar_atendimentos_usuario(session["usuario_id"], iniciada_em)
+    if atendimentos and not all(a["finalizado"] or a["bloqueado_tempo"] for a in atendimentos):
+        return atendimentos[0]["modo"]
+    return None
+
 
 @app.route("/")
 def index():
+    return render_template("iniciar.html", em_andamento=simulacao_em_andamento())
+
+
+@app.route("/iniciar", methods=["POST"])
+def iniciar():
+    modo = request.form.get("modo", "")
+    if modo not in MODOS:
+        return render_template("iniciar.html", em_andamento=simulacao_em_andamento(),
+                               erro="Escolha um modo válido."), 400
+
     usuario_uuid = session["usuario_id"]
     garantir_usuario_no_banco(usuario_uuid)
 
     reiniciar_simulacao(session)
     limpar_simulacao_usuario(usuario_uuid)
-    inicializar_atendimentos_usuario(usuario_uuid)
+    inicializar_atendimentos_usuario(usuario_uuid, modo)
+    return redirect(url_for("simulacao"), code=303)
 
-    atendimentos = listar_atendimentos_usuario(
-        usuario_uuid,
-        session["simulacao_iniciada_em"]
-    )
+
+@app.route("/simulacao")
+def simulacao():
+    iniciada_em = session.get("simulacao_iniciada_em")
+    if iniciada_em is None:
+        return redirect(url_for("index"))
+
+    atendimentos = listar_atendimentos_usuario(session["usuario_id"], iniciada_em)
+    if not atendimentos:
+        return redirect(url_for("index"))
 
     return render_template(
         "chat.html",
-        atendimentos=atendimentos,
-        simulacao_iniciada_em=session["simulacao_iniciada_em"],
+        atendimentos=[atendimento_publico(a) for a in atendimentos],
+        modo=atendimentos[0]["modo"],
+        simulacao_iniciada_em=iniciada_em,
         tempo_limite_chat=TEMPO_LIMITE_CHAT,
         intervalo_entre_chats=INTERVALO_ENTRE_CHATS,
         servidor_agora=time.time(),
         operador_nome=g.operador["nome"]
     )
+
+
+def _ler_id_atendimento(data):
+    if not data or data.get("id") is None:
+        return None
+    try:
+        return int(data.get("id"))
+    except (TypeError, ValueError):
+        return None
+
+
+@app.route("/dica", methods=["POST"])
+def dica():
+    """Dicas progressivas (só no modo treino): 1 = pontos a cobrir, 2 = resposta sugerida."""
+    corpo = request.get_json(silent=True) or {}
+    id_atendimento = _ler_id_atendimento(corpo)
+    iniciada_em = session.get("simulacao_iniciada_em")
+
+    if id_atendimento is None:
+        return jsonify({"erro": "Atendimento inválido."}), 400
+    if iniciada_em is None:
+        return jsonify({"erro": "Sessão expirada. Recarregue a página para iniciar uma nova simulação."}), 409
+
+    at = buscar_atendimento_usuario(session["usuario_id"], id_atendimento, iniciada_em)
+    if not at:
+        return jsonify({"erro": "Atendimento inválido."}), 400
+    if at["modo"] != MODO_TREINO:
+        return jsonify({"erro": "Dicas só estão disponíveis no modo treino."}), 403
+    if at["finalizado"] or at["etapa_atual"] >= len(at["fluxo"]):
+        return jsonify({"erro": "Este atendimento já foi encerrado."}), 409
+
+    if corpo.get("atual"):
+        # Só reexibe a dica já liberada neste passo (ex.: depois de recarregar a página).
+        if at["dica_nivel"] == 0:
+            return jsonify({"nivel": 0, "texto": None, "ultimo_nivel": False, "dicas_usadas": at["dicas_usadas"]})
+        nivel = at["dica_nivel"]
+    else:
+        nivel = min(at["dica_nivel"] + 1, NIVEL_MAXIMO)
+        if nivel > at["dica_nivel"]:
+            at["dica_nivel"] = nivel
+            at["dicas_usadas"] += 1
+            salvar_estado_atendimento(at)
+
+    texto = gerar_dica(at["fluxo"][at["etapa_atual"]]["resposta_esperada"], nivel, at["palavras_criticas"])
+    return jsonify({
+        "nivel": nivel,
+        "texto": texto,
+        "ultimo_nivel": nivel >= NIVEL_MAXIMO,
+        "dicas_usadas": at["dicas_usadas"],
+    })
+
 
 @app.route("/responder", methods=["POST"])
 def responder():
@@ -235,7 +341,7 @@ def responder():
     analise_tom = analisar_tom(resposta, respostas_anteriores)
     empatia = analise_tom["empatia"]
     avisos.extend(analise_tom["avisos"])
-    nota_tempo = avaliar_tempo(tempo_resposta_segundos)
+    nota_tempo = 20 if at["modo"] == MODO_TREINO else avaliar_tempo(tempo_resposta_segundos)
 
     if not pontuacao_ok:
         coerencia = max(0, coerencia - 10)
@@ -310,6 +416,7 @@ def responder():
 
     else:
         at["tentativas_etapa"] = 0
+        at["dica_nivel"] = 0
         at["etapa_atual"] += 1
 
         if at["etapa_atual"] < len(at["fluxo"]):

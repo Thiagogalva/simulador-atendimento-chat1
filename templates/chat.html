@@ -12,11 +12,12 @@
 
     <aside class="sidebar">
         <div class="sidebar-usuario">
-            <span>{{ operador_nome }}</span>
+            <span>{{ operador_nome }} <span class="etiqueta-modo etiqueta-{{ modo }}">{{ 'Treino' if modo == 'treino' else 'Avaliação' }}</span></span>
             <div class="sidebar-links">
                 <a href="{{ url_for('painel.historico') }}" target="_blank" rel="noopener">Histórico</a>
                 <a href="{{ url_for('painel.ranking_view') }}" target="_blank" rel="noopener">Ranking</a>
                 <form method="post" action="{{ url_for('auth.sair') }}" class="form-inline">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="link-botao">Sair</button>
                 </form>
             </div>
@@ -43,9 +44,14 @@
             <span>Nível: <b id="m-nivel">-</b></span>
         </div>
 
+        <div class="dica-area" id="dica-area" style="display:none">
+            <button type="button" id="btn-dica" class="botao-dica" onclick="pedirDica()">💡 Pedir dica</button>
+        </div>
+
         <div
             class="sugestao-box"
             id="sugestao"
+            style="display:none"
             oncopy="return false"
             oncut="return false"
             onpaste="return false">
@@ -63,6 +69,7 @@
 let dados = {{ atendimentos | tojson }};
 let atual = dados.length > 0 ? dados[0].id : 0;
 
+const MODO = {{ modo | tojson }};
 const TEMPO_LIMITE = {{ tempo_limite_chat | tojson }};
 const INTERVALO_ENTRE_CHATS = {{ intervalo_entre_chats | tojson }};
 let simulacaoIniciadaEm = {{ simulacao_iniciada_em | tojson }};
@@ -91,7 +98,7 @@ function prepararDadosIniciais() {
         at.nota = Number(at.nota || calcularNotaLocal(at));
         at.nivel = at.nivel || classificarGeral(at.nota);
         at.mensagens = at.mensagens || [];
-        at.resposta_esperada = at.resposta_esperada || "";
+        at.dicaTexto = "";
 
         at.liberadoEm = Number(
             at.liberado_em !== undefined && at.liberado_em !== null
@@ -233,6 +240,7 @@ function tempoDecorridoNoTurno(at) {
 }
 
 function turnoExpirado(at) {
+    if (MODO === "treino") return false;
     if (at.finalizado) return false;
     if (!chatJaFoiLiberado(at)) return false;
     return tempoDecorridoNoTurno(at) >= TEMPO_LIMITE;
@@ -303,9 +311,55 @@ function selecionar(id) {
     }
 
     renderMensagens();
+    atualizarDica(at);
 
-    document.getElementById("sugestao").innerText =
-        "Sugestão: " + (at.resposta_esperada || "");
+    if (MODO === "treino" && at.dica_nivel > 0 && !at.dicaTexto && !at.finalizado) {
+        pedirDica(true);
+    }
+}
+
+function atualizarDica(at) {
+    const area = document.getElementById("dica-area");
+    const box = document.getElementById("sugestao");
+    const botao = document.getElementById("btn-dica");
+
+    if (MODO !== "treino") {
+        area.style.display = "none";
+        box.style.display = "none";
+        return;
+    }
+
+    area.style.display = "";
+    box.style.display = at.dicaTexto ? "" : "none";
+    box.innerText = at.dicaTexto || "";
+
+    const nivel = Number(at.dica_nivel || 0);
+    botao.disabled = Boolean(at.finalizado) || nivel >= 2;
+    botao.innerText = nivel === 0 ? "💡 Pedir dica"
+        : (nivel === 1 ? "💡 Mostrar resposta sugerida" : "Dicas esgotadas");
+}
+
+function pedirDica(apenasAtual) {
+    const at = buscarAtendimentoPorId(atual);
+    if (!at || at.finalizado) return;
+
+    fetch("/dica", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: at.id, atual: Boolean(apenasAtual) })
+    })
+        .then(r => r.json().catch(() => ({})).then(d => ({ ok: r.ok, status: r.status, d })))
+        .then(({ ok, status, d }) => {
+            if (status === 401) { window.location.href = "/login"; return; }
+            if (!ok) {
+                if (!apenasAtual) alert(d.erro || "Não foi possível obter a dica.");
+                return;
+            }
+            at.dica_nivel = Number(d.nivel || 0);
+            at.dicaTexto = d.texto || "";
+            if (buscarAtendimentoPorId(atual) === at) atualizarDica(at);
+        })
+        .catch(() => { if (!apenasAtual) alert("Não foi possível obter a dica."); });
 }
 
 function encontrarUltimaMensagemOperador(mensagens) {
@@ -395,8 +449,11 @@ function enviar() {
             at.liberadoEm = Number(data.liberado_em);
         }
 
-        if (data.sugestao) {
-            at.resposta_esperada = data.sugestao;
+        at.etapa_atual = Number(data.etapa_atual || 0);
+        at.total_passos = Number(data.total_passos || at.total_passos || 0);
+        at.dica_nivel = Number(data.dica_nivel || 0);
+        if (!at.dica_nivel) {
+            at.dicaTexto = "";
         }
 
         if (!at.finalizado) {
@@ -409,8 +466,7 @@ function enviar() {
         campo.value = "";
         campo.focus();
 
-        document.getElementById("sugestao").innerText =
-            "Sugestão: " + (data.sugestao || "");
+        atualizarDica(at);
 
         atualizarBadgeAtendimento(at);
 
@@ -569,7 +625,9 @@ function salvarResultadoFinal() {
                 el.textContent = d.erro || "Não foi possível salvar o resultado no histórico.";
                 return;
             }
-            let texto = "Resultado salvo no seu histórico.";
+            let texto = MODO === "treino"
+                ? "Treino salvo no seu histórico (não conta para o ranking)."
+                : "Resultado salvo no seu histórico.";
             if (d.posicao) {
                 texto += " Sua posição no ranking: " + d.posicao + "º de " + d.total_operadores + ".";
             }
@@ -609,6 +667,12 @@ function atualizarTimers() {
         }
 
         at.iniciado = true;
+
+        if (MODO === "treino") {
+            el.innerText = "Passo " + Math.min(at.etapa_atual + 1, at.total_passos) + "/" + at.total_passos;
+            el.className = "timer verde";
+            return;
+        }
 
         const tempo = Math.floor(agora - at.ultimoTempo);
         const p = tempo / TEMPO_LIMITE;

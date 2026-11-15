@@ -27,6 +27,26 @@ def cliente_logado(nome="Operador Teste", usuario=None):
     return client, buscar_operador_por_usuario(usuario)["id"], usuario
 
 
+def token_csrf(client) -> str:
+    with client.session_transaction() as s:
+        s.setdefault("csrf", "token-de-teste")
+        return s["csrf"]
+
+
+def post_form(client, url, data=None, **kwargs):
+    """POST de formulário HTML já com o token CSRF da sessão."""
+    dados = dict(data or {})
+    dados["csrf_token"] = token_csrf(client)
+    return client.post(url, data=dados, **kwargs)
+
+
+def iniciar(client, modo="avaliacao"):
+    """Inicia uma nova simulação (substitui o antigo GET / que reiniciava)."""
+    r = post_form(client, "/iniciar", {"modo": modo})
+    assert r.status_code == 303, r.get_data(as_text=True)
+    return r
+
+
 def preparar_turno(operador_id: int, id_publico: int):
     """Reinicia o relógio do turno do atendimento (evita expirar durante os testes)."""
     conn = get_connection()
@@ -44,12 +64,12 @@ def liberar_todos(client):
         s["simulacao_iniciada_em"] = time.time() - 1000
 
 
-def completar_simulacao(client, operador_id: int, respostas=None):
+def completar_simulacao(client, operador_id: int, respostas=None, modo="avaliacao"):
     """
     Responde todos os passos de todos os atendimentos. Por padrão usa as respostas sugeridas;
     `respostas` pode ser uma função (atendimento, passo) -> texto.
     """
-    client.get("/")
+    iniciar(client, modo)
     liberar_todos(client)
     ultimo = None
     for at in BASE_ATENDIMENTOS:

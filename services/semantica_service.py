@@ -83,6 +83,26 @@ def conceitos(texto: str) -> set:
 _NEGACAO_CORTES = re.compile(r"\bnao (se preocup\w*|hesit\w*|ha de que|tem de que)\b")
 
 
+def palavras_chave(texto: str, limite: int = 4) -> list:
+    """
+    Palavras mais características do texto (as de maior peso/raridade), na forma original
+    e na ordem em que aparecem. Usado nas dicas do modo treino.
+    """
+    candidatas = {}  # conceito -> (peso, posição, palavra original)
+    for posicao, original in enumerate(re.findall(r"[^\W\d_]+", texto, re.UNICODE)):
+        normal = normalizar_texto(original)
+        if not normal or normal in STOPWORDS or normal in NEGACOES or len(normal) < 4:
+            continue
+        radical = _radical(normal)
+        conceito = _CONCEITO_DO_RADICAL.get(radical, radical)
+        peso = _peso(conceito)
+        if conceito not in candidatas:
+            candidatas[conceito] = (peso, posicao, original.lower())
+
+    melhores = sorted(candidatas.values(), key=lambda c: (-c[0], c[1]))[:limite]
+    return [palavra for _, _, palavra in sorted(melhores, key=lambda c: c[1])]
+
+
 def tem_negacao(texto: str) -> bool:
     limpo = _NEGACAO_CORTES.sub(" ", normalizar_texto(texto))
     return any(p in NEGACOES for p in limpo.split())

@@ -8,6 +8,7 @@ from repositories.mensagem_repository import buscar_mensagens
 from repositories.avaliacao_repository import buscar_avaliacoes
 from services.tempo_service import calcular_liberado_em, atendimento_expirado
 from services.cliente_service import humor_da_irritacao
+from services.texto_service import PALAVRAS_CRITICAS
 
 def limpar_simulacao_usuario(usuario_uuid: str):
     conn = get_connection()
@@ -25,7 +26,7 @@ def limpar_simulacao_usuario(usuario_uuid: str):
     conn.commit()
     conn.close()
 
-def inicializar_atendimentos_usuario(usuario_uuid: str):
+def inicializar_atendimentos_usuario(usuario_uuid: str, modo: str = "avaliacao"):
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -47,8 +48,10 @@ def inicializar_atendimentos_usuario(usuario_uuid: str):
                 resposta_esperada,
                 finalizado,
                 bloqueado_tempo,
-                ultimo_tempo_backend
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ultimo_tempo_backend,
+                modo,
+                palavras_criticas_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             usuario_uuid,
             item["id"],
@@ -63,7 +66,9 @@ def inicializar_atendimentos_usuario(usuario_uuid: str):
             primeiro_passo["resposta_esperada"],
             0,
             0,
-            None
+            None,
+            modo,
+            json.dumps(PALAVRAS_CRITICAS.get(item["titulo"].lower(), []), ensure_ascii=False)
         ))
 
         cursor.execute("""
@@ -99,8 +104,12 @@ def montar_atendimento_dict(row, cursor, simulacao_iniciada_em):
         "irritacao": row["irritacao"],
         "tentativas_etapa": row["tentativas_etapa"],
         "encerrado_por_cliente": bool(row["encerrado_por_cliente"]),
+        "modo": row["modo"],
+        "dica_nivel": row["dica_nivel"],
+        "dicas_usadas": row["dicas_usadas"],
+        "palavras_criticas": json.loads(row["palavras_criticas_json"] or "[]"),
         "mensagens": buscar_mensagens(cursor, row["id"]),
-        "liberado_em": calcular_liberado_em(simulacao_iniciada_em, row["id_publico"])
+        "liberado_em": calcular_liberado_em(simulacao_iniciada_em, row["id_publico"], row["modo"])
     }
 
     atendimento["humor"] = "encerrado" if atendimento["encerrado_por_cliente"] else humor_da_irritacao(atendimento["irritacao"])
@@ -165,7 +174,9 @@ def salvar_estado_atendimento(at):
             ultimo_tempo_backend = ?,
             irritacao = ?,
             tentativas_etapa = ?,
-            encerrado_por_cliente = ?
+            encerrado_por_cliente = ?,
+            dica_nivel = ?,
+            dicas_usadas = ?
         WHERE id = ?
     """, (
         at["etapa_atual"],
@@ -181,6 +192,8 @@ def salvar_estado_atendimento(at):
         at["irritacao"],
         at["tentativas_etapa"],
         1 if at["encerrado_por_cliente"] else 0,
+        at["dica_nivel"],
+        at["dicas_usadas"],
         at["db_id"]
     ))
 

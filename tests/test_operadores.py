@@ -10,8 +10,10 @@ from tests.helpers import (
     SENHA,
     cliente_logado,
     completar_simulacao,
+    iniciar,
     liberar_todos,
     novo_usuario,
+    post_form,
 )
 
 FORA = [
@@ -51,7 +53,7 @@ class Autenticacao(unittest.TestCase):
 
     def test_registro_valido_ja_entra_logado(self):
         c, _, _ = cliente_logado()
-        self.assertEqual(c.get("/").status_code, 200)
+        self.assertEqual(c.get("/").status_code, 200)  # tela de escolha do modo
 
     def test_usuario_duplicado_e_recusado(self):
         usuario = novo_usuario()
@@ -116,7 +118,8 @@ class Autenticacao(unittest.TestCase):
     def test_logout(self):
         c, _, _ = cliente_logado()
         self.assertEqual(c.get("/sair").status_code, 405)   # só POST
-        self.assertEqual(c.post("/sair").status_code, 302)
+        self.assertEqual(c.post("/sair").status_code, 400)   # sem token CSRF
+        self.assertEqual(post_form(c, "/sair").status_code, 302)
         self.assertEqual(c.get("/").status_code, 302)
 
     def test_cookie_de_sessao_seguro(self):
@@ -145,7 +148,7 @@ class Autenticacao(unittest.TestCase):
 class HistoricoERanking(unittest.TestCase):
     def test_nao_finaliza_antes_de_terminar_nem_aceita_nota_do_cliente(self):
         c, _, _ = cliente_logado()
-        c.get("/")
+        iniciar(c)
         r = c.post("/finalizar", json={"nota_geral": 100, "nivel": "Especialista"})
         self.assertEqual(r.status_code, 409)
 
@@ -184,7 +187,7 @@ class HistoricoERanking(unittest.TestCase):
 
     def test_tempo_esgotado_em_todos_os_chats_conta_nota_zero(self):
         c, operador_id, _ = cliente_logado()
-        c.get("/")
+        iniciar(c)
         liberar_todos(c)  # todos liberados há muito tempo e sem resposta
         r = c.post("/finalizar")
         self.assertEqual(r.status_code, 200, r.get_json())

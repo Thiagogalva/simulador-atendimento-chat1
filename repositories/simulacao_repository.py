@@ -21,8 +21,8 @@ def salvar_simulacao(operador_id: int, iniciada_em: float, resumo: dict):
             INSERT INTO simulacoes (
                 operador_id, iniciada_em, finalizada_em, nota_geral, nivel,
                 media_coerencia, media_empatia, media_tempo, total_erros,
-                total_atendimentos, detalhes_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                total_atendimentos, detalhes_json, modo
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (operador_id, iniciada_em) DO NOTHING
         """, (
             operador_id,
@@ -36,6 +36,7 @@ def salvar_simulacao(operador_id: int, iniciada_em: float, resumo: dict):
             resumo["total_erros"],
             resumo["total_atendimentos"],
             json.dumps(resumo["detalhes"], ensure_ascii=False),
+            resumo.get("modo", "avaliacao"),
         ))
         criada = cursor.rowcount == 1
         row = cursor.execute(
@@ -60,6 +61,8 @@ def _simulacao_para_dict(row) -> dict:
         "total_erros": row["total_erros"],
         "total_atendimentos": row["total_atendimentos"],
         "detalhes": json.loads(row["detalhes_json"] or "[]"),
+        "modo": row["modo"],
+        "feedback_texto": row["feedback_texto"],
     }
 
 
@@ -85,7 +88,7 @@ PERIODOS_RANKING = {
 
 def ranking(periodo: str = "geral", limite: int = 50) -> list:
     """
-    Operadores ordenados pela média das notas das simulações no período
+    Operadores ordenados pela média das notas das simulações de AVALIAÇÃO no período
     (desempate: mais simulações, depois nome). Só expõe nome de exibição.
     """
     janela = PERIODOS_RANKING.get(periodo)
@@ -102,7 +105,7 @@ def ranking(periodo: str = "geral", limite: int = 50) -> list:
                    MAX(s.finalizada_em) AS ultima
             FROM operadores o
             JOIN simulacoes s ON s.operador_id = o.id
-            WHERE s.finalizada_em >= ?
+            WHERE s.finalizada_em >= ? AND s.modo = 'avaliacao' AND o.ativo = 1
             GROUP BY o.id, o.nome
             ORDER BY media DESC, simulacoes DESC, o.nome ASC
             LIMIT ?

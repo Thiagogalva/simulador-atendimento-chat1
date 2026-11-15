@@ -3,7 +3,7 @@ import unittest
 
 from data.base_atendimentos import BASE_ATENDIMENTOS
 from database.init_db import garantir_colunas
-from tests.helpers import cliente_logado
+from tests.helpers import cliente_logado, iniciar
 from services.cliente_service import (
     LIMITE_ENCERRAMENTO,
     decidir_reacao,
@@ -88,23 +88,25 @@ class RegrasDoCliente(unittest.TestCase):
 
 class MigracaoDeBanco(unittest.TestCase):
     def test_adiciona_colunas_em_banco_antigo(self):
+        from database.init_db import COLUNAS_NOVAS
+
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
-        cur.execute("CREATE TABLE atendimentos (id INTEGER PRIMARY KEY, etapa_atual INTEGER)")
-        cur.execute("CREATE TABLE mensagens (id INTEGER PRIMARY KEY, texto TEXT)")
+        for tabela in COLUNAS_NOVAS:  # banco "antigo": só a coluna id
+            cur.execute(f"CREATE TABLE {tabela} (id INTEGER PRIMARY KEY)")
         garantir_colunas(cur)
         garantir_colunas(cur)  # idempotente
-        atendimentos = {r["name"] for r in cur.execute("PRAGMA table_info(atendimentos)")}
-        mensagens = {r["name"] for r in cur.execute("PRAGMA table_info(mensagens)")}
-        self.assertTrue({"irritacao", "tentativas_etapa", "encerrado_por_cliente"} <= atendimentos)
-        self.assertIn("humor", mensagens)
+
+        for tabela, colunas in COLUNAS_NOVAS.items():
+            existentes = {r["name"] for r in cur.execute(f"PRAGMA table_info({tabela})")}
+            self.assertTrue(set(colunas) <= existentes, tabela)
 
 
 class ClienteReativoNaApi(unittest.TestCase):
     def setUp(self):
         self.client, self.operador_id, _ = cliente_logado()
-        self.client.get("/")
+        iniciar(self.client)
 
     def _post(self, texto, i=0):
         r = self.client.post("/responder", json={"id": i, "resposta": texto})
@@ -119,7 +121,7 @@ class ClienteReativoNaApi(unittest.TestCase):
         ultima = self._ultima_do_cliente(d)
         self.assertIn(PASSO0["cliente"], ultima["texto"])      # repete o que perguntou
         self.assertNotEqual(ultima["texto"], PASSO0["cliente"])  # mas reagindo
-        self.assertEqual(d["sugestao"], PASSO0["resposta_esperada"])  # continua no mesmo passo
+        self.assertEqual(d["etapa_atual"], 0)  # continua no mesmo passo
         self.assertEqual(d["irritacao"], 25)
         self.assertFalse(d["finalizado"])
         self.assertEqual(len(d["mensagens"]), 3)
@@ -161,7 +163,7 @@ class ClienteReativoNaApi(unittest.TestCase):
         self.assertEqual(d["irritacao"], 38)
         self.assertTrue(ultima["texto"].endswith(PASSO1["cliente"]))
         self.assertGreater(len(ultima["texto"]), len(PASSO1["cliente"]))  # comentário de alívio
-        self.assertEqual(d["sugestao"], PASSO1["resposta_esperada"])  # avançou de etapa
+        self.assertEqual(d["etapa_atual"], 1)  # avançou de etapa
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ from services.avaliacao_service import calcular_coerencia
 from services.semantica_service import similaridade
 from services.texto_service import detectar_erros_linguisticos
 from services.tom_service import avaliar_tom
-from tests.helpers import cliente_logado, preparar_turno
+from tests.helpers import cliente_logado, iniciar, preparar_turno
 
 E1 = BASE_ATENDIMENTOS[0]["fluxo"][0]["resposta_esperada"]
 E_NEG = BASE_ATENDIMENTOS[1]["fluxo"][3]["resposta_esperada"]
@@ -106,7 +106,7 @@ class FluxoCompleto(unittest.TestCase):
         import app as aplicacao
         self.app = aplicacao.app
         self.client, self.operador_id, _ = cliente_logado()
-        self.client.get("/")
+        iniciar(self.client)
 
     def _post(self, i, texto):
         r = self.client.post("/responder", json={"id": i, "resposta": texto})

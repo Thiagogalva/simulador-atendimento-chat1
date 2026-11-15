@@ -9,8 +9,15 @@
     <p><a class="botao-primario" href="{{ url_for('index') }}">Começar uma simulação</a></p>
 </section>
 {% else %}
+{% if not resumo %}
+<section class="cartao">
+    <p>Você só fez treinos até agora. Faça uma avaliação para aparecer no ranking e ver sua evolução.</p>
+    <p><a class="botao-primario" href="{{ url_for('index') }}">Fazer uma avaliação</a></p>
+</section>
+{% else %}
 <section class="grade-resumo">
-    <div class="cartao-metrica"><span>Simulações</span><b>{{ resumo.total }}</b></div>
+    <div class="cartao-metrica"><span>Avaliações</span><b>{{ resumo.total }}</b></div>
+    <div class="cartao-metrica"><span>Treinos</span><b>{{ treinos }}</b></div>
     <div class="cartao-metrica"><span>Média</span><b>{{ resumo.media }}</b></div>
     <div class="cartao-metrica"><span>Melhor nota</span><b>{{ resumo.melhor }}</b></div>
     <div class="cartao-metrica"><span>Última nota</span><b>{{ resumo.ultima }}</b></div>
@@ -27,6 +34,7 @@
         <b>{% if posicao %}{{ posicao }}º / {{ total_operadores }}{% else %}-{% endif %}</b>
     </div>
 </section>
+{% endif %}
 
 {% if grafico %}
 <section class="cartao">
@@ -53,12 +61,13 @@
     <div class="tabela-rolagem">
     <table class="tabela">
         <thead>
-            <tr><th>Data</th><th>Nota</th><th>Nível</th><th>Coerência</th><th>Empatia</th><th>Tempo</th><th>Erros</th></tr>
+            <tr><th>Data</th><th>Modo</th><th>Nota</th><th>Nível</th><th>Coerência</th><th>Empatia</th><th>Tempo</th><th>Erros</th></tr>
         </thead>
         <tbody>
         {% for s in simulacoes %}
             <tr>
                 <td><time class="data-local" datetime="{{ s.finalizada_em }}">{{ s.finalizada_em }}</time></td>
+                <td><span class="etiqueta-modo etiqueta-{{ s.modo }}">{{ 'Treino' if s.modo == 'treino' else 'Avaliação' }}</span></td>
                 <td><b>{{ s.nota_geral }}</b></td>
                 <td>{{ s.nivel }}</td>
                 <td>{{ s.media_coerencia }}</td>
@@ -67,7 +76,7 @@
                 <td>{{ s.total_erros }}</td>
             </tr>
             <tr class="linha-detalhe">
-                <td colspan="7">
+                <td colspan="8">
                     <details>
                         <summary>Ver atendimentos ({{ s.total_atendimentos }})</summary>
                         <ul class="lista-detalhe">

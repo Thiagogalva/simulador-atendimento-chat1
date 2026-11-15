@@ -43,6 +43,7 @@ def montar_resumo(atendimentos: list) -> dict:
 
     nota_geral = round(mean(d["nota"] for d in detalhes), 1) if detalhes else 0.0
     return {
+        "modo": atendimentos[0]["modo"] if atendimentos else "avaliacao",
         "nota_geral": nota_geral,
         "nivel": classificar_nivel(nota_geral),
         "media_coerencia": round(mean(d["coerencia"] for d in detalhes), 1) if detalhes else 0.0,
@@ -90,10 +91,14 @@ def finalizar():
 
     resumo = montar_resumo(atendimentos)
     simulacao_id, criada = salvar_simulacao(g.operador["id"], iniciada_em, resumo)
-    posicao, total = posicao_do_operador(g.operador["id"])
+    if resumo["modo"] == "avaliacao":
+        posicao, total = posicao_do_operador(g.operador["id"])
+    else:
+        posicao, total = None, 0  # treino não entra no ranking
 
     return jsonify({
         "id": simulacao_id,
+        "modo": resumo["modo"],
         "salva_agora": criada,
         "nota_geral": resumo["nota_geral"],
         "nivel": resumo["nivel"],
@@ -105,12 +110,14 @@ def finalizar():
 @bp.route("/historico")
 def historico():
     simulacoes = listar_simulacoes_do_operador(g.operador["id"])
-    notas = [s["nota_geral"] for s in simulacoes]
+    treinos = sum(1 for s in simulacoes if s["modo"] == "treino")
+    # Métricas, tendência e gráfico consideram só as avaliações (o treino não vale nota).
+    notas = [s["nota_geral"] for s in simulacoes if s["modo"] == "avaliacao"]
 
     resumo = None
-    if simulacoes:
+    if notas:
         resumo = {
-            "total": len(simulacoes),
+            "total": len(notas),
             "media": round(mean(notas), 1),
             "melhor": round(max(notas), 1),
             "ultima": round(notas[0], 1),
@@ -127,6 +134,7 @@ def historico():
     return render_template(
         "historico.html",
         simulacoes=simulacoes,
+        treinos=treinos,
         resumo=resumo,
         grafico=montar_grafico(ultimas_30),
         posicao=posicao,

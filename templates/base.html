@@ -16,6 +16,7 @@
         <a href="{{ url_for('painel.ranking_view') }}">Ranking</a>
         <span class="topbar-usuario">{{ g.operador.nome }}</span>
         <form method="post" action="{{ url_for('auth.sair') }}" class="form-inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="link-botao">Sair</button>
         </form>
     </nav>

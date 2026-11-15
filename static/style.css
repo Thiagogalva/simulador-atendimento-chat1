@@ -532,3 +532,17 @@ button:active {
 .sidebar-usuario a:hover, .sidebar-usuario .link-botao:hover { text-decoration: underline; }
 .sidebar-links { display: flex; gap: 12px; flex-wrap: wrap; }
 .resultado-salvo { margin-top: 14px; font-size: 14px; color: #444; }
+
+/* Modos treino / avaliação */
+.grade-modos { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.cartao-modo h2 { margin-top: 0; }
+.cartao-modo ul { padding-left: 20px; line-height: 1.7; color: #444; margin: 0 0 16px; }
+.etiqueta-modo { font-size: 11px; border-radius: 10px; padding: 1px 8px; margin-left: 4px; }
+.etiqueta-treino { background: #e8f5e9; color: #2e7d32; }
+.etiqueta-avaliacao { background: #e3f2fd; color: #1565c0; }
+.dica-area { padding: 6px 0; }
+.botao-dica {
+    background: #fff8e1; border: 1px solid #ffe082; color: #8d6e00; border-radius: 8px;
+    padding: 6px 12px; cursor: pointer; font-size: 14px;
+}
+.botao-dica:disabled { opacity: 0.6; cursor: default; }

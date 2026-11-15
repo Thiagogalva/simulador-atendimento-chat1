@@ -26,14 +26,14 @@ def fracao_frases_chave(resposta_normalizada: str, esperada_normalizada: str):
         return None
     return atendidos / exigidos
 
-def fracao_palavras_criticas(conceitos_resposta: set, conceitos_esperados: set, titulo_atendimento: str):
+def fracao_palavras_criticas(conceitos_resposta: set, conceitos_esperados: set, palavras_criticas):
     """
     Entre as palavras críticas do atendimento que aparecem na resposta esperada deste passo,
     retorna a fração presente na resposta do operador.
     Retorna None quando o passo não exige nenhuma palavra crítica.
     """
     criticas = set()
-    for palavra in PALAVRAS_CRITICAS.get(titulo_atendimento.lower(), []):
+    for palavra in palavras_criticas:
         criticas |= conceitos(palavra)
     exigidas = criticas & conceitos_esperados
 
@@ -59,7 +59,9 @@ def calcular_coerencia(resposta: str, atendimento: dict) -> int:
     criticas = fracao_palavras_criticas(
         conceitos(resposta),
         conceitos(atendimento["resposta_esperada"]),
-        atendimento.get("titulo", "")
+        atendimento.get("palavras_criticas")
+        if atendimento.get("palavras_criticas") is not None
+        else PALAVRAS_CRITICAS.get(atendimento.get("titulo", "").lower(), [])
     )
     if criticas is not None:
         componentes.append((20, criticas))

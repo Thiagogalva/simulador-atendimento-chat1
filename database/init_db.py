@@ -2,13 +2,31 @@ from database.connection import get_connection, usando_postgres
 
 # Colunas adicionadas depois da primeira versão (aplicadas também a bancos já existentes).
 COLUNAS_NOVAS = {
+    "mensagens": {
+        "humor": "TEXT",
+    },
     "atendimentos": {
         "irritacao": "INTEGER NOT NULL DEFAULT 0",
         "tentativas_etapa": "INTEGER NOT NULL DEFAULT 0",
         "encerrado_por_cliente": "INTEGER NOT NULL DEFAULT 0",
+        "modo": "TEXT NOT NULL DEFAULT 'avaliacao'",
+        "dica_nivel": "INTEGER NOT NULL DEFAULT 0",
+        "dicas_usadas": "INTEGER NOT NULL DEFAULT 0",
+        "cenario_id": "INTEGER",
+        "palavras_criticas_json": "TEXT",
     },
-    "mensagens": {
-        "humor": "TEXT",
+    "operadores": {
+        "papel": "TEXT NOT NULL DEFAULT 'operador'",
+        "ativo": "INTEGER NOT NULL DEFAULT 1",
+        "senha_temporaria": "INTEGER NOT NULL DEFAULT 0",
+        "recuperacao_hash": "TEXT",
+    },
+    "simulacoes": {
+        "modo": "TEXT NOT NULL DEFAULT 'avaliacao'",
+        "feedback_texto": "TEXT",
+    },
+    "avaliacoes": {
+        "feedback_texto": "TEXT",
     },
 }
 

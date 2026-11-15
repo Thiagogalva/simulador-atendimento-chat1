@@ -51,6 +51,17 @@ TOM_INADEQUADO = [
 ]
 
 
+def componentes_de_acolhimento(texto: str) -> list:
+    """Quais componentes de empatia o texto contém (na ordem: acolhimento, ação, cortesia, próximo passo)."""
+    normalizada = normalizar_texto(texto)
+    encontrados = []
+    for nome, padrao in (("acolhimento", ACOLHIMENTO), ("acao", ACAO),
+                         ("cortesia", CORTESIA), ("proximo_passo", PROXIMO_PASSO)):
+        if padrao.search(normalizada):
+            encontrados.append(nome)
+    return encontrados
+
+
 def _proporcao_maiusculas(texto: str) -> float:
     letras = [c for c in texto if c.isalpha()]
     if len(letras) < 8:
