@@ -26,7 +26,7 @@
 <main class="pagina-conteudo">
     {% with mensagens = get_flashed_messages(with_categories=true) %}
         {% for categoria, texto in mensagens %}
-        <p class="{{ 'alerta-erro' if categoria == 'erro' else 'alerta-ok' }}" role="status">{{ texto }}</p>
+        <p class="{{ 'alerta-erro' if categoria == 'erro' else ('alerta-aviso' if categoria == 'aviso' else 'alerta-ok') }}" role="status">{{ texto }}</p>
         {% endfor %}
     {% endwith %}
     {% block conteudo %}{% endblock %}

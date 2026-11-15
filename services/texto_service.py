@@ -151,7 +151,20 @@ def expandir_com_sinonimos(palavras: set) -> set:
 
     return expandidas
 
-def detectar_erros_linguisticos(texto: str):
+def vocabulario_do_texto(*textos) -> set:
+    """Palavras (minúsculas) usadas nos textos informados; vale como vocabulário aceito do cenário."""
+    palavras = set()
+    for texto in textos:
+        for m in re.finditer(r"\b[^\W\d_]+\b", texto or "", re.UNICODE):
+            palavras.add(m.group(0).lower())
+    return palavras
+
+
+def vocabulario_do_fluxo(fluxo: list) -> set:
+    return vocabulario_do_texto(*[p.get("cliente", "") for p in fluxo], *[p.get("resposta_esperada", "") for p in fluxo])
+
+
+def detectar_erros_linguisticos(texto: str, palavras_extras=None):
     erros = []
     avisos = []
 
@@ -164,7 +177,7 @@ def detectar_erros_linguisticos(texto: str):
         if len(palavra) <= 1:
             continue
 
-        if palavra in PALAVRAS_PERMITIDAS:
+        if palavra in PALAVRAS_PERMITIDAS or (palavras_extras and palavra in palavras_extras):
             continue
 
         if palavra in ABREVIACOES_PROIBIDAS:

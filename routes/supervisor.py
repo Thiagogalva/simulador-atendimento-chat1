@@ -5,6 +5,15 @@ from statistics import mean
 
 from flask import Blueprint, Response, abort, flash, g, redirect, render_template, request, session, url_for
 
+from repositories.cenario_repository import (
+    atualizar_cenario,
+    buscar_cenario,
+    contar_ativos,
+    criar_cenario,
+    definir_ativo_cenario,
+    listar_cenarios,
+    proxima_ordem,
+)
 from repositories.operador_repository import (
     PAPEIS,
     atualizar_senha,
@@ -17,6 +26,7 @@ from repositories.operador_repository import (
 )
 from repositories.simulacao_repository import listar_simulacoes_do_operador, listar_todas_as_simulacoes
 from services.auth_service import gerar_hash, gerar_senha_temporaria
+from services.cenario_service import MAX_PASSOS, validar_cenario
 
 bp = Blueprint("supervisor", __name__, url_prefix="/supervisor")
 
@@ -165,3 +175,96 @@ def exportar_csv():
             "Cache-Control": "no-store",
         },
     )
+
+
+# ---------------------------------------------------------------- cenários
+
+LINHAS_EM_BRANCO = 2
+
+
+def _passos_do_formulario():
+    clientes = request.form.getlist("cliente")
+    respostas = request.form.getlist("resposta")
+    return [{"cliente": c, "resposta_esperada": r} for c, r in zip(clientes, respostas)]
+
+
+@bp.route("/cenarios")
+@requer_supervisor
+def cenarios():
+    return render_template("cenarios.html", cenarios=listar_cenarios(), ativos=contar_ativos())
+
+
+@bp.route("/cenarios/novo", methods=["GET", "POST"])
+@requer_supervisor
+def cenario_novo():
+    return _formulario_cenario(None)
+
+
+@bp.route("/cenarios/<int:cenario_id>", methods=["GET", "POST"])
+@requer_supervisor
+def cenario_editar(cenario_id):
+    cenario = buscar_cenario(cenario_id)
+    if cenario is None:
+        abort(404)
+    return _formulario_cenario(cenario)
+
+
+def _formulario_cenario(cenario):
+    erros, status = [], 200
+    valores = {
+        "titulo": cenario["titulo"] if cenario else "",
+        "ordem": cenario["ordem"] if cenario else proxima_ordem(),
+        "palavras": ", ".join(cenario["palavras_criticas"]) if cenario else "",
+        "passos": list(cenario["fluxo"]) if cenario else [],
+    }
+
+    if request.method == "POST":
+        erros, avisos, dados = validar_cenario(
+            request.form.get("titulo"), request.form.get("ordem"), request.form.get("palavras"),
+            request.form.getlist("cliente"), request.form.getlist("resposta"),
+            ordem_padrao=valores["ordem"],
+        )
+        valores = {
+            "titulo": request.form.get("titulo", ""),
+            "ordem": request.form.get("ordem", ""),
+            "palavras": request.form.get("palavras", ""),
+            "passos": _passos_do_formulario(),
+        }
+
+        if not erros:
+            if cenario is None:
+                cenario_id = criar_cenario(dados, criado_por=g.operador["id"])
+                registrar_auditoria(g.operador["id"], f"criou o cenário \"{dados['titulo']}\"")
+            else:
+                cenario_id = cenario["id"]
+                atualizar_cenario(cenario_id, dados)
+                registrar_auditoria(g.operador["id"], f"editou o cenário \"{dados['titulo']}\"")
+            flash("Cenário salvo. Simulações já em andamento não são afetadas.", "ok")
+            for aviso in avisos:
+                flash(aviso, "aviso")
+            return redirect(url_for("supervisor.cenarios"))
+        status = 400
+
+    while len(valores["passos"]) < LINHAS_EM_BRANCO:
+        valores["passos"].append({"cliente": "", "resposta_esperada": ""})
+
+    return render_template("cenario_form.html", cenario=cenario, valores=valores, erros=erros,
+                           max_passos=MAX_PASSOS), status
+
+
+@bp.route("/cenarios/<int:cenario_id>/ativo", methods=["POST"])
+@requer_supervisor
+def cenario_ativo(cenario_id):
+    cenario = buscar_cenario(cenario_id)
+    if cenario is None:
+        abort(404)
+
+    ativar = request.form.get("ativo") == "1"
+    if not ativar and cenario["ativo"] and contar_ativos() <= 1:
+        flash("Mantenha pelo menos um cenário ativo, senão ninguém consegue iniciar simulações.", "erro")
+        return redirect(url_for("supervisor.cenarios"))
+
+    definir_ativo_cenario(cenario_id, ativar)
+    registrar_auditoria(g.operador["id"], f"{'ativou' if ativar else 'arquivou'} o cenário \"{cenario['titulo']}\"")
+    flash(f"Cenário {'ativado' if ativar else 'arquivado'}.", "ok")
+    return redirect(url_for("supervisor.cenarios"))

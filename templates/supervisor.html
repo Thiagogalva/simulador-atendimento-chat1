@@ -18,7 +18,8 @@
     <div class="cartao-metrica"><span>Média geral</span><b>{{ resumo.media if resumo.media is not none else '-' }}</b></div>
 </section>
 
-<p>
+<p class="acoes-topo">
+    <a class="botao-primario" href="{{ url_for('supervisor.cenarios') }}">Gerenciar cenários</a>
     <a class="botao-primario" href="{{ url_for('supervisor.exportar_csv') }}">Exportar simulações (CSV)</a>
 </p>
 

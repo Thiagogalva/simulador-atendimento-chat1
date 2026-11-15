@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block titulo %}{{ 'Editar' if cenario else 'Novo' }} cenário - Supervisor{% endblock %}
+{% block conteudo %}
+<p><a href="{{ url_for('supervisor.cenarios') }}">&larr; Voltar aos cenários</a></p>
+<h1>{{ 'Editar cenário' if cenario else 'Novo cenário' }}</h1>
+
+{% if erros %}
+<ul class="alerta-erro" role="alert">{% for e in erros %}<li>{{ e }}</li>{% endfor %}</ul>
+{% endif %}
+
+<form method="post" class="cartao form-auth form-cenario">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <label>Título
+        <input type="text" name="titulo" value="{{ valores.titulo }}" maxlength="80" required>
+    </label>
+    <label>Ordem (menor aparece primeiro)
+        <input type="number" name="ordem" value="{{ valores.ordem }}" min="0" max="9999">
+    </label>
+    <label>Palavras críticas (separadas por vírgula)
+        <input type="text" name="palavras" value="{{ valores.palavras }}" placeholder="prazo, estorno, análise">
+    </label>
+    <p class="texto-auxiliar">Palavras ou ideias que o operador precisa mencionar. Elas valem pontos na coerência e viram dicas no modo treino.</p>
+
+    <h2>Passos da conversa</h2>
+    <p class="texto-auxiliar">Cada passo é uma fala do cliente e a resposta ideal do operador (até {{ max_passos }} passos). Passos vazios são ignorados.</p>
+
+    <div id="passos">
+    {% for p in valores.passos %}
+        <fieldset class="passo">
+            <legend>Passo <span class="num">{{ loop.index }}</span></legend>
+            <label>Fala do cliente
+                <textarea name="cliente" rows="2" maxlength="400">{{ p.cliente }}</textarea>
+            </label>
+            <label>Resposta esperada do operador
+                <textarea name="resposta" rows="3" maxlength="500">{{ p.resposta_esperada }}</textarea>
+            </label>
+            <button type="button" class="botao-pequeno" onclick="removerPasso(this)">Remover passo</button>
+        </fieldset>
+    {% endfor %}
+    </div>
+
+    <template id="modelo-passo">
+        <fieldset class="passo">
+            <legend>Passo <span class="num"></span></legend>
+            <label>Fala do cliente
+                <textarea name="cliente" rows="2" maxlength="400"></textarea>
+            </label>
+            <label>Resposta esperada do operador
+                <textarea name="resposta" rows="3" maxlength="500"></textarea>
+            </label>
+            <button type="button" class="botao-pequeno" onclick="removerPasso(this)">Remover passo</button>
+        </fieldset>
+    </template>
+
+    <p><button type="button" class="botao-pequeno" id="btn-add" onclick="adicionarPasso()">+ Adicionar passo</button></p>
+    <button type="submit" class="botao-primario">Salvar cenário</button>
+</form>
+
+<script>
+var MAX_PASSOS = {{ max_passos | tojson }};
+function renumerar() {
+    document.querySelectorAll("#passos .passo .num").forEach(function (el, i) { el.textContent = i + 1; });
+    document.getElementById("btn-add").disabled = document.querySelectorAll("#passos .passo").length >= MAX_PASSOS;
+}
+function adicionarPasso() {
+    var modelo = document.getElementById("modelo-passo").content.cloneNode(true);
+    document.getElementById("passos").appendChild(modelo);
+    renumerar();
+}
+function removerPasso(botao) {
+    var passos = document.querySelectorAll("#passos .passo");
+    if (passos.length <= 1) return;
+    botao.closest(".passo").remove();
+    renumerar();
+}
+renumerar();
+</script>
+{% endblock %}

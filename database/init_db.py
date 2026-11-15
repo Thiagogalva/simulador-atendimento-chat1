@@ -128,6 +128,18 @@ def _tabelas(pk: str) -> list:
             FOREIGN KEY (operador_id) REFERENCES operadores (id)
         )""",
         f"""
+        CREATE TABLE IF NOT EXISTS cenarios (
+            id {pk},
+            titulo TEXT NOT NULL,
+            fluxo_json TEXT NOT NULL,
+            palavras_criticas_json TEXT NOT NULL DEFAULT '[]',
+            ativo INTEGER NOT NULL DEFAULT 1,
+            ordem INTEGER NOT NULL DEFAULT 0,
+            criado_por INTEGER,
+            criado_em TEXT NOT NULL,
+            atualizado_em TEXT NOT NULL
+        )""",
+        f"""
         CREATE TABLE IF NOT EXISTS auditoria (
             id {pk},
             ator_id INTEGER,
@@ -155,6 +167,35 @@ def init_db():
         cursor.execute(ddl)
 
     garantir_colunas(cursor)
+    semear_cenarios(cursor)
 
     conn.commit()
     conn.close()
+
+
+def semear_cenarios(cursor):
+    """Na primeira execução, carrega os cenários iniciais (data/base_atendimentos.py) para o banco."""
+    import json
+    from datetime import datetime, timezone
+
+    from data.base_atendimentos import BASE_ATENDIMENTOS
+    from services.texto_service import PALAVRAS_CRITICAS
+
+    total = cursor.execute("SELECT COUNT(*) AS n FROM cenarios").fetchone()["n"]
+    if total:
+        return
+
+    agora = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    for posicao, item in enumerate(BASE_ATENDIMENTOS):
+        cursor.execute(
+            "INSERT INTO cenarios (titulo, fluxo_json, palavras_criticas_json, ativo, ordem, criado_em, atualizado_em) "
+            "VALUES (?, ?, ?, 1, ?, ?, ?)",
+            (
+                item["titulo"],
+                json.dumps(item["fluxo"], ensure_ascii=False),
+                json.dumps(PALAVRAS_CRITICAS.get(item["titulo"].lower(), []), ensure_ascii=False),
+                (posicao + 1) * 10,
+                agora,
+                agora,
+            ),
+        )

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block titulo %}Cenários - Supervisor{% endblock %}
+{% block conteudo %}
+<p><a href="{{ url_for('supervisor.painel') }}">&larr; Voltar ao painel</a></p>
+<h1>Cenários de atendimento</h1>
+<p class="texto-auxiliar">Os cenários ativos formam as próximas simulações, na ordem indicada. Alterações não afetam simulações em andamento.</p>
+<p><a class="botao-primario" href="{{ url_for('supervisor.cenario_novo') }}">+ Novo cenário</a></p>
+
+<section class="cartao">
+    <div class="tabela-rolagem">
+    <table class="tabela">
+        <thead><tr><th>Ordem</th><th>Título</th><th>Passos</th><th>Status</th><th>Atualizado</th><th>Ações</th></tr></thead>
+        <tbody>
+        {% for c in cenarios %}
+            <tr>
+                <td>{{ c.ordem }}</td>
+                <td><a href="{{ url_for('supervisor.cenario_editar', cenario_id=c.id) }}">{{ c.titulo }}</a></td>
+                <td>{{ c.fluxo|length }}</td>
+                <td>{{ 'Ativo' if c.ativo else 'Arquivado' }}</td>
+                <td><time class="data-local" datetime="{{ c.atualizado_em }}">{{ c.atualizado_em }}</time></td>
+                <td class="acoes">
+                    <a class="botao-pequeno" href="{{ url_for('supervisor.cenario_editar', cenario_id=c.id) }}">Editar</a>
+                    <form method="post" action="{{ url_for('supervisor.cenario_ativo', cenario_id=c.id) }}" class="form-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="ativo" value="{{ '0' if c.ativo else '1' }}">
+                        <button type="submit" class="botao-pequeno">{{ 'Arquivar' if c.ativo else 'Ativar' }}</button>
+                    </form>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</section>
+{% endblock %}

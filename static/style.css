@@ -565,3 +565,14 @@ button:active {
     font-size: 12px; cursor: pointer; margin-bottom: 4px;
 }
 .botao-pequeno:hover { background: #eef3f9; }
+
+/* Cenários */
+.alerta-aviso {
+    background: #fff8e1; color: #6d4c00; border: 1px solid #ffe082; border-radius: 8px;
+    padding: 10px 14px; margin: 0 0 14px; font-size: 14px;
+}
+.acoes-topo { display: flex; gap: 10px; flex-wrap: wrap; }
+.form-cenario { max-width: 760px; }
+.passo { border: 1px solid #dde2ea; border-radius: 10px; padding: 12px; margin: 0 0 12px; display: flex; flex-direction: column; gap: 10px; }
+.passo legend { font-weight: 600; padding: 0 6px; }
+.form-cenario textarea { padding: 10px 12px; border: 1px solid #c9d0db; border-radius: 8px; font-size: 15px; font-family: inherit; resize: vertical; }

@@ -82,3 +82,11 @@ def completar_simulacao(client, operador_id: int, respostas=None, modo="avaliaca
             if ultimo["finalizado"]:
                 break
     return ultimo
+
+
+def apagar_cenario(cenario_id: int):
+    """Remove um cenário criado por um teste (para não afetar os demais)."""
+    conn = get_connection()
+    conn.execute("DELETE FROM cenarios WHERE id = ?", (cenario_id,))
+    conn.commit()
+    conn.close()

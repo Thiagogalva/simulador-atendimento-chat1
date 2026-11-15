@@ -3,12 +3,11 @@ import time
 from datetime import datetime
 
 from database.connection import get_connection
-from data.base_atendimentos import BASE_ATENDIMENTOS
+from repositories.cenario_repository import cenarios_para_nova_simulacao
 from repositories.mensagem_repository import buscar_mensagens
 from repositories.avaliacao_repository import buscar_avaliacoes
 from services.tempo_service import calcular_liberado_em, atendimento_expirado
 from services.cliente_service import humor_da_irritacao
-from services.texto_service import PALAVRAS_CRITICAS
 
 def limpar_simulacao_usuario(usuario_uuid: str):
     conn = get_connection()
@@ -26,49 +25,36 @@ def limpar_simulacao_usuario(usuario_uuid: str):
     conn.commit()
     conn.close()
 
-def inicializar_atendimentos_usuario(usuario_uuid: str, modo: str = "avaliacao"):
+def inicializar_atendimentos_usuario(usuario_uuid: str, modo: str = "avaliacao") -> int:
+    """
+    Cria os atendimentos da simulação a partir dos cenários ativos. O roteiro é copiado
+    (snapshot) para cada atendimento: editar um cenário não altera simulações em andamento.
+    Retorna quantos atendimentos foram criados.
+    """
+    cenarios = cenarios_para_nova_simulacao()
+
     conn = get_connection()
     cursor = conn.cursor()
 
-    for item in BASE_ATENDIMENTOS:
-        primeiro_passo = item["fluxo"][0]
+    for indice, cenario in enumerate(cenarios):
+        primeiro_passo = cenario["fluxo"][0]
 
         atendimento_db_id = cursor.inserir("""
             INSERT INTO atendimentos (
-                usuario_uuid,
-                id_publico,
-                titulo,
-                fluxo_json,
-                etapa_atual,
-                total_erros,
-                total_respostas,
-                media_coerencia,
-                media_empatia,
-                media_tempo,
-                resposta_esperada,
-                finalizado,
-                bloqueado_tempo,
-                ultimo_tempo_backend,
-                modo,
-                palavras_criticas_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                usuario_uuid, id_publico, titulo, fluxo_json, etapa_atual,
+                total_erros, total_respostas, media_coerencia, media_empatia, media_tempo,
+                resposta_esperada, finalizado, bloqueado_tempo, ultimo_tempo_backend,
+                modo, palavras_criticas_json, cenario_id
+            ) VALUES (?, ?, ?, ?, 0, 0, 0, 0, 0, 0, ?, 0, 0, NULL, ?, ?, ?)
         """, (
             usuario_uuid,
-            item["id"],
-            item["titulo"],
-            json.dumps(item["fluxo"], ensure_ascii=False),
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
+            indice,
+            cenario["titulo"],
+            json.dumps(cenario["fluxo"], ensure_ascii=False),
             primeiro_passo["resposta_esperada"],
-            0,
-            0,
-            None,
             modo,
-            json.dumps(PALAVRAS_CRITICAS.get(item["titulo"].lower(), []), ensure_ascii=False)
+            json.dumps(cenario["palavras_criticas"], ensure_ascii=False),
+            cenario["id"],
         ))
 
         cursor.execute("""
@@ -83,6 +69,7 @@ def inicializar_atendimentos_usuario(usuario_uuid: str, modo: str = "avaliacao")
 
     conn.commit()
     conn.close()
+    return len(cenarios)
 
 def montar_atendimento_dict(row, cursor, simulacao_iniciada_em):
     atendimento = {

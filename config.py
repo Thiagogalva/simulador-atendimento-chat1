@@ -15,6 +15,10 @@ INTERVALO_ENTRE_CHATS = 50
 # Debug só quando FLASK_DEBUG=1 (o debugger do Werkzeug não deve ficar exposto em 0.0.0.0).
 DEBUG = os.environ.get("FLASK_DEBUG") == "1"
 
+# Quantos cenários cada simulação sorteia entre os ativos (0 = todos, na ordem definida).
+# Atenção: sortear faz operadores diferentes receberem cenários diferentes, o que torna o ranking menos comparável.
+CENARIOS_POR_SIMULACAO = int(os.environ.get("CENARIOS_POR_SIMULACAO", "0") or 0)
+
 # Banco persistente (PostgreSQL). Se vazio, usa SQLite em DB_NAME.
 # Ex.: postgresql://usuario:senha@host/banco?sslmode=require  (Neon, Supabase, Render, Railway...)
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()

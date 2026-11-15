@@ -39,7 +39,8 @@ from services.texto_service import (
     detectar_erros_linguisticos,
     validar_pontuacao_final,
     validar_primeira_letra_maiuscula,
-    validar_tamanho_minimo
+    validar_tamanho_minimo,
+    vocabulario_do_fluxo
 )
 from services.avaliacao_service import (
     calcular_coerencia,
@@ -197,7 +198,10 @@ def iniciar():
 
     reiniciar_simulacao(session)
     limpar_simulacao_usuario(usuario_uuid)
-    inicializar_atendimentos_usuario(usuario_uuid, modo)
+    if inicializar_atendimentos_usuario(usuario_uuid, modo) == 0:
+        session.pop("simulacao_iniciada_em", None)
+        return render_template("iniciar.html", em_andamento=None,
+                               erro="Não há cenários ativos. Peça a um supervisor para ativar algum."), 503
     return redirect(url_for("simulacao"), code=303)
 
 
@@ -343,7 +347,7 @@ def responder():
         "texto": resposta
     })
 
-    erros, avisos = detectar_erros_linguisticos(resposta)
+    erros, avisos = detectar_erros_linguisticos(resposta, vocabulario_do_fluxo(at["fluxo"]))
 
     pontuacao_ok = validar_pontuacao_final(resposta)
     if not pontuacao_ok:
