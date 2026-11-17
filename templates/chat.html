@@ -44,6 +44,11 @@
             <span>Nível: <b id="m-nivel">-</b></span>
         </div>
 
+        <div class="feedback-area" id="feedback-area" style="display:none">
+            <button type="button" id="btn-feedback" class="botao-dica" onclick="pedirFeedback()">💬 Feedback sobre minha resposta</button>
+            <div class="feedback-box" id="feedback-box" style="display:none"></div>
+        </div>
+
         <div class="dica-area" id="dica-area" style="display:none">
             <button type="button" id="btn-dica" class="botao-dica" onclick="pedirDica()">💡 Pedir dica</button>
         </div>
@@ -99,6 +104,7 @@ function prepararDadosIniciais() {
         at.nivel = at.nivel || classificarGeral(at.nota);
         at.mensagens = at.mensagens || [];
         at.dicaTexto = "";
+        at.feedbackTexto = "";
 
         at.liberadoEm = Number(
             at.liberado_em !== undefined && at.liberado_em !== null
@@ -312,10 +318,61 @@ function selecionar(id) {
 
     renderMensagens();
     atualizarDica(at);
+    atualizarFeedback(at);
 
     if (MODO === "treino" && at.dica_nivel > 0 && !at.dicaTexto && !at.finalizado) {
         pedirDica(true);
     }
+}
+
+const ROTULO_ORIGEM = { ia: "Instrutor virtual (IA)", regras: "Análise automática" };
+
+function atualizarFeedback(at) {
+    const area = document.getElementById("feedback-area");
+    const box = document.getElementById("feedback-box");
+    const botao = document.getElementById("btn-feedback");
+
+    if (MODO !== "treino") {
+        area.style.display = "none";
+        return;
+    }
+
+    const temResposta = (at.mensagens || []).some(m => m.tipo === "operador");
+    area.style.display = temResposta ? "" : "none";
+    botao.disabled = false;
+    botao.innerText = "💬 Feedback sobre minha resposta";
+
+    box.style.display = at.feedbackTexto ? "" : "none";
+    box.innerText = at.feedbackTexto || "";
+}
+
+function pedirFeedback() {
+    const at = buscarAtendimentoPorId(atual);
+    if (!at) return;
+
+    const botao = document.getElementById("btn-feedback");
+    botao.disabled = true;
+    botao.innerText = "Gerando feedback...";
+
+    fetch("/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: at.id })
+    })
+        .then(r => r.json().catch(() => ({})).then(d => ({ ok: r.ok, status: r.status, d })))
+        .then(({ ok, status, d }) => {
+            if (status === 401) { window.location.href = "/login"; return; }
+            if (!ok) {
+                alert(d.erro || "Não foi possível gerar o feedback.");
+                return;
+            }
+            const rotulo = ROTULO_ORIGEM[d.origem] || "Feedback";
+            at.feedbackTexto = rotulo + ": " + d.texto + (d.aviso ? " (" + d.aviso + ")" : "");
+        })
+        .catch(() => alert("Não foi possível gerar o feedback."))
+        .finally(() => {
+            if (buscarAtendimentoPorId(atual) === at) atualizarFeedback(at);
+        });
 }
 
 function atualizarDica(at) {
@@ -467,6 +524,8 @@ function enviar() {
         campo.focus();
 
         atualizarDica(at);
+        at.feedbackTexto = "";
+        atualizarFeedback(at);
 
         atualizarBadgeAtendimento(at);
 
@@ -591,6 +650,7 @@ function mostrarTelaFinal() {
                 </div>
 
                 <p class="resultado-salvo" id="resultado-salvo">Salvando resultado no histórico...</p>
+                <div class="feedback-final" id="feedback-final" style="display:none"></div>
 
                 <div class="resultado-acoes">
                     <button type="button" class="botao-nova-simulacao" onclick="iniciarNovaSimulacao()">
@@ -632,10 +692,30 @@ function salvarResultadoFinal() {
                 texto += " Sua posição no ranking: " + d.posicao + "º de " + d.total_operadores + ".";
             }
             el.textContent = texto;
+            buscarFeedbackFinal(d.id);
         })
         .catch(() => {
             if (el) el.textContent = "Não foi possível salvar o resultado no histórico (sem conexão).";
         });
+}
+
+function buscarFeedbackFinal(simulacaoId) {
+    const el = document.getElementById("feedback-final");
+    if (!el) return;
+    el.style.display = "";
+    el.textContent = "Gerando feedback do instrutor virtual...";
+
+    fetch("/feedback-final", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: simulacaoId })
+    })
+        .then(r => r.json().catch(() => ({})).then(d => ({ ok: r.ok, d })))
+        .then(({ ok, d }) => {
+            if (!ok) { el.style.display = "none"; return; }
+            el.textContent = (ROTULO_ORIGEM[d.origem] || "Feedback") + ": " + d.texto + (d.aviso ? " (" + d.aviso + ")" : "");
+        })
+        .catch(() => { el.style.display = "none"; });
 }
 
 function classificarGeral(media) {

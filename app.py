@@ -26,7 +26,12 @@ from repositories.atendimento_repository import (
     salvar_estado_atendimento
 )
 from repositories.mensagem_repository import adicionar_mensagem
-from repositories.avaliacao_repository import adicionar_avaliacao
+from repositories.avaliacao_repository import (
+    adicionar_avaliacao,
+    buscar_ultima_avaliacao,
+    salvar_feedback_avaliacao
+)
+from services.feedback_service import feedback_resposta
 from services.simulacao_service import reiniciar_simulacao
 from services.tempo_service import (
     MODO_TREINO,
@@ -108,7 +113,7 @@ def resposta_api_atendimento(at, qtd_erros=0, erros_detalhados=None, avisos=None
 
 ENDPOINTS_PUBLICOS = {"auth.login", "auth.registro", "auth.recuperar", "static"}
 ENDPOINTS_SENHA_TEMPORARIA = {"conta.senha", "auth.sair"}
-ENDPOINTS_JSON = {"responder", "dica", "painel.finalizar"}
+ENDPOINTS_JSON = {"responder", "dica", "feedback", "painel.finalizar", "painel.feedback_final"}
 
 
 @app.before_request
@@ -144,7 +149,7 @@ def exigir_login():
 
 @app.errorhandler(403)
 def proibido(_erro):
-    if request.path in ("/responder", "/dica", "/finalizar"):
+    if request.path in ("/responder", "/dica", "/feedback", "/finalizar", "/feedback-final"):
         return jsonify({"erro": "Acesso negado."}), 403
     return render_template("erro.html", titulo="Acesso negado",
                            mensagem="Você não tem permissão para acessar esta página."), 403
@@ -277,6 +282,43 @@ def dica():
     })
 
 
+@app.route("/feedback", methods=["POST"])
+def feedback():
+    """Feedback em texto sobre a última resposta (só no treino; na avaliação o feedback vem ao final)."""
+    id_atendimento = _ler_id_atendimento(request.get_json(silent=True))
+    iniciada_em = session.get("simulacao_iniciada_em")
+
+    if id_atendimento is None:
+        return jsonify({"erro": "Atendimento inválido."}), 400
+    if iniciada_em is None:
+        return jsonify({"erro": "Sessão expirada. Recarregue a página para iniciar uma nova simulação."}), 409
+
+    at = buscar_atendimento_usuario(session["usuario_id"], id_atendimento, iniciada_em)
+    if not at:
+        return jsonify({"erro": "Atendimento inválido."}), 400
+    if at["modo"] != MODO_TREINO:
+        return jsonify({"erro": "Na avaliação o feedback só é liberado ao final da simulação."}), 403
+
+    av = buscar_ultima_avaliacao(at["db_id"])
+    if av is None:
+        return jsonify({"erro": "Envie uma resposta antes de pedir feedback."}), 409
+
+    if av["feedback_texto"]:
+        return jsonify({"texto": av["feedback_texto"], "origem": av["feedback_origem"],
+                        "aviso": None, "em_cache": True})
+
+    etapa = av["etapa"] if av["etapa"] is not None else max(0, at["etapa_atual"] - 1)
+    etapa = min(etapa, len(at["fluxo"]) - 1)
+    passo = at["fluxo"][etapa]
+
+    resultado = feedback_resposta(g.operador["id"], av, passo["cliente"],
+                                  passo["resposta_esperada"], at["palavras_criticas"])
+    if resultado["origem"] == "ia":  # só guarda o que veio da IA; o fallback pode ser refeito depois
+        salvar_feedback_avaliacao(av["id"], resultado["texto"], "ia")
+    resultado["em_cache"] = False
+    return jsonify(resultado)
+
+
 @app.route("/responder", methods=["POST"])
 def responder():
     data = request.get_json()
@@ -400,7 +442,9 @@ def responder():
         empatia,
         nota_tempo,
         tempo_resposta_segundos,
-        avisos
+        avisos,
+        etapa=etapa,
+        resposta_texto=resposta
     )
     at["avaliacoes"].append(avaliacao)
 

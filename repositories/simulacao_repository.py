@@ -63,6 +63,7 @@ def _simulacao_para_dict(row) -> dict:
         "detalhes": json.loads(row["detalhes_json"] or "[]"),
         "modo": row["modo"],
         "feedback_texto": row["feedback_texto"],
+        "feedback_origem": row["feedback_origem"],
     }
 
 
@@ -156,3 +157,26 @@ def listar_todas_as_simulacoes() -> list:
         item["nome"] = r["nome"]
         resultado.append(item)
     return resultado
+
+
+def buscar_simulacao_do_operador(operador_id: int, simulacao_id: int):
+    conn = get_connection()
+    try:
+        row = conn.cursor().execute(
+            "SELECT * FROM simulacoes WHERE id = ? AND operador_id = ?", (simulacao_id, operador_id)
+        ).fetchone()
+        return _simulacao_para_dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def salvar_feedback_simulacao(simulacao_id: int, texto: str, origem: str):
+    conn = get_connection()
+    try:
+        conn.cursor().execute(
+            "UPDATE simulacoes SET feedback_texto = ?, feedback_origem = ? WHERE id = ?",
+            (texto, origem, simulacao_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()

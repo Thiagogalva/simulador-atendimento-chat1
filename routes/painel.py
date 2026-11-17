@@ -5,16 +5,29 @@ from flask import Blueprint, g, jsonify, render_template, request, session
 from repositories.atendimento_repository import listar_atendimentos_usuario
 from repositories.simulacao_repository import (
     PERIODOS_RANKING,
+    buscar_simulacao_do_operador,
     listar_simulacoes_do_operador,
     posicao_do_operador,
     ranking,
+    salvar_feedback_simulacao,
     salvar_simulacao,
 )
+from services.feedback_service import feedback_final as gerar_feedback_final
 from services.avaliacao_service import calcular_nota, classificar_nivel
 
 bp = Blueprint("painel", __name__)
 
 ROTULOS_PERIODO = {"geral": "Geral", "30d": "Últimos 30 dias", "7d": "Últimos 7 dias"}
+
+
+def _avisos_frequentes(avaliacoes: list, limite: int = 3) -> list:
+    """Os avisos que mais se repetiram nas respostas do atendimento (alimentam o feedback final)."""
+    contagem = {}
+    for avaliacao in avaliacoes:
+        for aviso in avaliacao["avisos"]:
+            contagem[aviso] = contagem.get(aviso, 0) + 1
+    ordenados = sorted(contagem.items(), key=lambda item: -item[1])
+    return [aviso for aviso, _ in ordenados[:limite]]
 
 
 def montar_resumo(atendimentos: list) -> dict:
@@ -39,6 +52,7 @@ def montar_resumo(atendimentos: list) -> dict:
             "erros": at["total_erros"],
             "status": status,
             "humor": at["humor"],
+            "avisos": _avisos_frequentes(at["avaliacoes"]),
         })
 
     nota_geral = round(mean(d["nota"] for d in detalhes), 1) if detalhes else 0.0
@@ -155,3 +169,26 @@ def ranking_view():
         periodos=ROTULOS_PERIODO,
         meu_id=g.operador["id"],
     )
+
+
+@bp.route("/feedback-final", methods=["POST"])
+def feedback_final():
+    """Feedback em texto sobre a simulação concluída (IA se disponível; senão, análise por regras)."""
+    corpo = request.get_json(silent=True) or {}
+    try:
+        simulacao_id = int(corpo.get("id"))
+    except (TypeError, ValueError):
+        return jsonify({"erro": "Simulação inválida."}), 400
+
+    simulacao = buscar_simulacao_do_operador(g.operador["id"], simulacao_id)
+    if simulacao is None:
+        return jsonify({"erro": "Simulação não encontrada."}), 404
+
+    if simulacao["feedback_texto"]:
+        return jsonify({"texto": simulacao["feedback_texto"], "origem": simulacao["feedback_origem"],
+                        "aviso": None, "em_cache": True})
+
+    resultado = gerar_feedback_final(g.operador["id"], simulacao)
+    salvar_feedback_simulacao(simulacao_id, resultado["texto"], resultado["origem"])
+    resultado["em_cache"] = False
+    return jsonify(resultado)

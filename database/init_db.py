@@ -24,9 +24,13 @@ COLUNAS_NOVAS = {
     "simulacoes": {
         "modo": "TEXT NOT NULL DEFAULT 'avaliacao'",
         "feedback_texto": "TEXT",
+        "feedback_origem": "TEXT",
     },
     "avaliacoes": {
+        "etapa": "INTEGER",
+        "resposta_texto": "TEXT",
         "feedback_texto": "TEXT",
+        "feedback_origem": "TEXT",
     },
 }
 

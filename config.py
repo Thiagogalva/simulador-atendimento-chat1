@@ -19,6 +19,23 @@ DEBUG = os.environ.get("FLASK_DEBUG") == "1"
 # Atenção: sortear faz operadores diferentes receberem cenários diferentes, o que torna o ranking menos comparável.
 CENARIOS_POR_SIMULACAO = int(os.environ.get("CENARIOS_POR_SIMULACAO", "0") or 0)
 
+# ---- Feedback por IA (opcional). Qualquer API compatível com "chat/completions" da OpenAI.
+# Provedores com plano gratuito: groq, gemini, mistral, cerebras, openrouter (limites e modelos mudam; confira no provedor).
+# ATENÇÃO: o texto das respostas dos operadores é enviado ao provedor; alguns planos gratuitos usam os dados para treino.
+_PROVEDORES_LLM = {
+    "groq": "https://api.groq.com/openai/v1",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "mistral": "https://api.mistral.ai/v1",
+    "cerebras": "https://api.cerebras.ai/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+}
+LLM_PROVEDOR = os.environ.get("LLM_PROVEDOR", "").strip().lower()
+LLM_BASE_URL = (os.environ.get("LLM_BASE_URL", "").strip() or _PROVEDORES_LLM.get(LLM_PROVEDOR, "")).rstrip("/")
+LLM_API_KEY = os.environ.get("LLM_API_KEY", "").strip()
+LLM_MODEL = os.environ.get("LLM_MODEL", "").strip()
+LLM_TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "12") or 12)
+LLM_LIMITE_POR_HORA = int(os.environ.get("LLM_LIMITE_POR_HORA", "30") or 30)
+
 # Banco persistente (PostgreSQL). Se vazio, usa SQLite em DB_NAME.
 # Ex.: postgresql://usuario:senha@host/banco?sslmode=require  (Neon, Supabase, Render, Railway...)
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
