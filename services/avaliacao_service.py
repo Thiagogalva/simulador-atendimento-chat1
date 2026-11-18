@@ -3,7 +3,7 @@ from services.texto_service import (
     PALAVRAS_CRITICAS,
     normalizar_texto
 )
-from services.semantica_service import conceitos, similaridade
+from services.semantica_service import conceitos, conceitos_atendidos, conceitos_e_lemas, similaridade
 from services.tom_service import avaliar_tom
 
 def fracao_frases_chave(resposta_normalizada: str, esperada_normalizada: str):
@@ -26,7 +26,7 @@ def fracao_frases_chave(resposta_normalizada: str, esperada_normalizada: str):
         return None
     return atendidos / exigidos
 
-def fracao_palavras_criticas(conceitos_resposta: set, conceitos_esperados: set, palavras_criticas):
+def fracao_palavras_criticas(conceitos_resposta: dict, conceitos_esperados: dict, palavras_criticas):
     """
     Entre as palavras críticas do atendimento que aparecem na resposta esperada deste passo,
     retorna a fração presente na resposta do operador.
@@ -35,11 +35,14 @@ def fracao_palavras_criticas(conceitos_resposta: set, conceitos_esperados: set, 
     criticas = set()
     for palavra in palavras_criticas:
         criticas |= conceitos(palavra)
-    exigidas = criticas & conceitos_esperados
+    exigidas = criticas & set(conceitos_esperados)
 
     if not exigidas:
         return None
-    return sum(1 for c in exigidas if c in conceitos_resposta) / len(exigidas)
+
+    # Pareamento um-para-um: uma palavra da resposta não pode cumprir duas palavras críticas.
+    atendidas = conceitos_atendidos({c: conceitos_esperados[c] for c in exigidas}, conceitos_resposta)
+    return len(atendidas) / len(exigidas)
 
 def calcular_coerencia(resposta: str, atendimento: dict) -> int:
     resposta_normalizada = normalizar_texto(resposta)
@@ -57,8 +60,8 @@ def calcular_coerencia(resposta: str, atendimento: dict) -> int:
         componentes.append((20, frases))
 
     criticas = fracao_palavras_criticas(
-        conceitos(resposta),
-        conceitos(atendimento["resposta_esperada"]),
+        conceitos_e_lemas(resposta),
+        conceitos_e_lemas(atendimento["resposta_esperada"]),
         atendimento.get("palavras_criticas")
         if atendimento.get("palavras_criticas") is not None
         else PALAVRAS_CRITICAS.get(atendimento.get("titulo", "").lower(), [])

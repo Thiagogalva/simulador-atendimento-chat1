@@ -304,17 +304,15 @@ def feedback():
         return jsonify({"erro": "Envie uma resposta antes de pedir feedback."}), 409
 
     if av["feedback_texto"]:
-        return jsonify({"texto": av["feedback_texto"], "origem": av["feedback_origem"],
-                        "aviso": None, "em_cache": True})
+        return jsonify({"texto": av["feedback_texto"], "origem": av["feedback_origem"], "em_cache": True})
 
     etapa = av["etapa"] if av["etapa"] is not None else max(0, at["etapa_atual"] - 1)
     etapa = min(etapa, len(at["fluxo"]) - 1)
     passo = at["fluxo"][etapa]
 
-    resultado = feedback_resposta(g.operador["id"], av, passo["cliente"],
-                                  passo["resposta_esperada"], at["palavras_criticas"])
-    if resultado["origem"] == "ia":  # só guarda o que veio da IA; o fallback pode ser refeito depois
-        salvar_feedback_avaliacao(av["id"], resultado["texto"], "ia")
+    resultado = feedback_resposta(av, av.get("resposta_texto") or "", passo["resposta_esperada"],
+                                  at["palavras_criticas"])
+    salvar_feedback_avaliacao(av["id"], resultado["texto"], resultado["origem"])
     resultado["em_cache"] = False
     return jsonify(resultado)
 

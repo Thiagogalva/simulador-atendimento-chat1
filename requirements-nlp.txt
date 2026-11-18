@@ -1,0 +1,5 @@
+# Camada opcional de PLN local (sem chaves, offline). Instale se o servidor tiver ~300 MB livres:
+#   pip install -r requirements-nlp.txt
+# Não é necessária na Vercel (limite de tamanho); lá o sistema usa o motor léxico.
+spacy>=3.8,<3.9
+https://github.com/explosion/spacy-models/releases/download/pt_core_news_md-3.8.0/pt_core_news_md-3.8.0-py3-none-any.whl

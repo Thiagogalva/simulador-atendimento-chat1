@@ -30,7 +30,7 @@
             <tr class="linha-detalhe"><td colspan="8">
                 <details><summary>Ver atendimentos ({{ s.total_atendimentos }})</summary>
                 {% if s.feedback_texto %}
-                <p class="feedback-texto"><b>{{ 'Instrutor virtual (IA)' if s.feedback_origem == 'ia' else 'Análise automática' }}:</b> {{ s.feedback_texto }}</p>
+                <p class="feedback-texto"><b>Análise automática:</b> {{ s.feedback_texto }}</p>
                 {% endif %}
                 <ul class="lista-detalhe">
                 {% for d in s.detalhes %}

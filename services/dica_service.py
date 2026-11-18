@@ -25,7 +25,7 @@ _GENERICAS = {normalizar_texto(p) for p in (
 _PADROES_DE_TOM = (ACOLHIMENTO, ACAO, CORTESIA, PROXIMO_PASSO)
 
 
-def _e_de_tom_ou_generica(palavra: str) -> bool:
+def e_de_tom_ou_generica(palavra: str) -> bool:
     normal = normalizar_texto(palavra)
     return normal in _GENERICAS or any(p.search(normal) for p in _PADROES_DE_TOM)
 
@@ -46,7 +46,7 @@ def _pistas_de_conteudo(resposta_esperada: str, palavras_criticas) -> list:
     for palavra in palavras_chave(resposta_esperada, limite=8):
         if len(escolhidas) >= MAXIMO_PALAVRAS:
             break
-        if palavra not in escolhidas and len(palavra) >= 5 and not _e_de_tom_ou_generica(palavra):
+        if palavra not in escolhidas and len(palavra) >= 5 and not e_de_tom_ou_generica(palavra):
             escolhidas.append(palavra)
 
     ordem = {p.lower(): i for i, p in enumerate(palavras_da_resposta)}

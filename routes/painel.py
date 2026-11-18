@@ -185,10 +185,12 @@ def feedback_final():
         return jsonify({"erro": "Simulação não encontrada."}), 404
 
     if simulacao["feedback_texto"]:
-        return jsonify({"texto": simulacao["feedback_texto"], "origem": simulacao["feedback_origem"],
-                        "aviso": None, "em_cache": True})
+        return jsonify({"texto": simulacao["feedback_texto"], "origem": simulacao["feedback_origem"], "em_cache": True})
 
-    resultado = gerar_feedback_final(g.operador["id"], simulacao)
+    # Compara com a simulação anterior do mesmo modo (a lista vem do mais recente para o mais antigo).
+    anterior = next((s for s in listar_simulacoes_do_operador(g.operador["id"], limite=100)
+                     if s["id"] < simulacao_id and s["modo"] == simulacao["modo"]), None)
+    resultado = gerar_feedback_final(simulacao, anterior)
     salvar_feedback_simulacao(simulacao_id, resultado["texto"], resultado["origem"])
     resultado["em_cache"] = False
     return jsonify(resultado)

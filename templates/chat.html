@@ -325,7 +325,8 @@ function selecionar(id) {
     }
 }
 
-const ROTULO_ORIGEM = { ia: "Instrutor virtual (IA)", regras: "Análise automática" };
+const ROTULO_ORIGEM = {};  // todo feedback é gerado localmente pelo sistema
+function rotuloOrigem() { return "Análise automática"; }
 
 function atualizarFeedback(at) {
     const area = document.getElementById("feedback-area");
@@ -366,8 +367,7 @@ function pedirFeedback() {
                 alert(d.erro || "Não foi possível gerar o feedback.");
                 return;
             }
-            const rotulo = ROTULO_ORIGEM[d.origem] || "Feedback";
-            at.feedbackTexto = rotulo + ": " + d.texto + (d.aviso ? " (" + d.aviso + ")" : "");
+            at.feedbackTexto = rotuloOrigem() + ": " + d.texto;
         })
         .catch(() => alert("Não foi possível gerar o feedback."))
         .finally(() => {
@@ -703,7 +703,7 @@ function buscarFeedbackFinal(simulacaoId) {
     const el = document.getElementById("feedback-final");
     if (!el) return;
     el.style.display = "";
-    el.textContent = "Gerando feedback do instrutor virtual...";
+    el.textContent = "Gerando análise do seu desempenho...";
 
     fetch("/feedback-final", {
         method: "POST",
@@ -713,7 +713,7 @@ function buscarFeedbackFinal(simulacaoId) {
         .then(r => r.json().catch(() => ({})).then(d => ({ ok: r.ok, d })))
         .then(({ ok, d }) => {
             if (!ok) { el.style.display = "none"; return; }
-            el.textContent = (ROTULO_ORIGEM[d.origem] || "Feedback") + ": " + d.texto + (d.aviso ? " (" + d.aviso + ")" : "");
+            el.textContent = rotuloOrigem() + ": " + d.texto;
         })
         .catch(() => { el.style.display = "none"; });
 }

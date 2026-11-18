@@ -65,20 +65,30 @@ Os cenários ficam no banco e são gerenciados em `/supervisor/cenarios`: títul
 - Cenários arquivados saem das próximas simulações; nunca é possível arquivar o último ativo.
 - `CENARIOS_POR_SIMULACAO=N` sorteia N cenários por simulação (padrão 0 = todos). Atenção: sorteio torna o ranking menos comparável, pois cada operador recebe cenários diferentes.
 
-## Feedback por IA (opcional)
+## Inteligência local (sem IA paga, sem chaves)
 
-Sem configuração, o sistema usa um **feedback local por regras** (notas, palavras que faltaram, tom). Com uma API "compatível com OpenAI" ele passa a gerar um texto de instrutor virtual, com fallback automático para as regras se a IA falhar.
+Tudo é processado dentro do sistema; nenhuma chamada de rede é feita para avaliar, reagir ou gerar feedback.
+
+- **Compreensão do texto:** radicais (snowball), grupos de sinônimos, peso por raridade do termo, negação invertida e tolerância a erro de digitação.
+- **Tom e cliente reativo:** acolhimento, ação, cortesia, descaso, caixa alta etc.; o cliente se irrita, repete a pergunta ou desiste.
+- **Feedback em texto** (botão no treino; análise final no histórico): mostra ideias que o operador cobriu e as que faltaram, a estrutura da resposta (acolher, agir, informar prazo, cortesia) e, no final, a evolução em relação à simulação anterior e o ponto mais fraco. É gerado por regras, então é determinístico e fica em cache. Só elogia com evidência segura e só cobra o que realmente não aparece.
+
+### Camada opcional de PLN (spaCy)
+
+Para reconhecer sinônimos que não estão na lista (ex.: "conferir" ≈ "verificar") e escolher melhores pistas, instale a camada opcional:
 
 ```bash
-LLM_PROVEDOR=groq            # groq | gemini | mistral | cerebras | openrouter (ou use LLM_BASE_URL)
-LLM_API_KEY=...              # chave do provedor
-LLM_MODEL=...                # nome do modelo (confira no provedor: mudam com frequência)
+pip install -r requirements-nlp.txt     # spaCy + modelo pt_core_news_md (roda offline)
 ```
 
-- A IA **nunca altera notas**: só escreve o feedback. O `/responder` não chama a IA.
-- Há limite por operador (`LLM_LIMITE_POR_HORA`, padrão 30), tempo máximo (`LLM_TIMEOUT`, padrão 12 s) e um disjuntor que pausa as chamadas após falhas (429/5xx/chave inválida).
-- Textos de operador, cliente e cenário vão delimitados no prompt como dados não confiáveis (mitigação de injeção de prompt) e a saída é limpa e limitada.
-- **Privacidade:** o texto das respostas é enviado ao provedor (nunca nome ou usuário do operador). Alguns planos gratuitos usam os dados para melhorar modelos; use apenas cenários fictícios.
+| | Sem spaCy (padrão) | Com spaCy |
+| --- | --- | --- |
+| Instalação | só `requirements.txt` | + `requirements-nlp.txt` (~380 MB de disco) |
+| Memória | leve | +~320 MB de RAM (carrega em ~1,5 s) |
+| Sinônimos | lista de sinônimos | lista + vetores de palavras |
+| Onde roda bem | qualquer host, inclusive Vercel | servidores com folga de memória/disco |
+
+Os vetores só ajudam na **nota** (crédito parcial, com pareamento um-para-um para uma palavra não valer duas ideias). Eles são estáticos e podem aproximar palavras raras parecidas na forma; por isso o feedback não afirma nada com base só neles. `NLP_DESATIVAR=1` desliga a camada mesmo instalada.
 
 ## Contas, histórico e ranking
 
@@ -98,9 +108,8 @@ LLM_MODEL=...                # nome do modelo (confira no provedor: mudam com fr
 | `CODIGO_CONVITE` | vazio | Se definido, o cadastro exige este código. |
 | `SUPERVISORES` | vazio | Logins (separados por vírgula) que são sempre supervisores. |
 | `CENARIOS_POR_SIMULACAO` | `0` (todos) | Sorteia N cenários ativos por simulação. |
-| `LLM_PROVEDOR` / `LLM_BASE_URL` | vazio | Provedor de IA (preset) ou URL base de uma API compatível com OpenAI. |
-| `LLM_API_KEY` / `LLM_MODEL` | vazio | Chave e modelo. Sem eles, o feedback é por regras. |
-| `LLM_TIMEOUT` / `LLM_LIMITE_POR_HORA` | `12` / `30` | Tempo máximo (s) e feedbacks de IA por operador por hora. |
+| `NLP_DESATIVAR` | vazio | `1` desliga a camada opcional de spaCy. |
+| `SPACY_MODELO` | `pt_core_news_md` | Modelo spaCy a carregar (se instalado). |
 | `SESSION_COOKIE_SECURE` | automático na Vercel | `1` força cookie só por HTTPS. |
 | `FLASK_DEBUG` | desligado | `1` ativa o modo debug. |
 
@@ -115,7 +124,6 @@ LLM_MODEL=...                # nome do modelo (confira no provedor: mudam com fr
 ### Publicar na Vercel (ou outro host)
 
 1. Crie um banco PostgreSQL gratuito (ex.: Neon) e copie a connection string.
-2. Na Vercel, em *Settings → Environment Variables*, defina `DATABASE_URL`, `SECRET_KEY`, `SUPERVISORES` e, se quiser, `CODIGO_CONVITE` e as variáveis `LLM_*`.
 3. Faça o deploy. Sem `DATABASE_URL`, o SQLite ficaria em `/tmp` e os dados se perderiam.
 
 ## Testes
@@ -123,6 +131,7 @@ LLM_MODEL=...                # nome do modelo (confira no provedor: mudam com fr
 ```bash
 python -m unittest discover -s tests -t .                       # SQLite temporário
 TEST_DATABASE_URL=postgresql://... python -m unittest discover -s tests -t .   # PostgreSQL de TESTE
+NLP_DESATIVAR=1 python -m unittest discover -s tests -t .       # sem a camada spaCy (testes dela são pulados)
 ```
 
 Os testes ignoram `DATABASE_URL` de propósito (criam operadores e simulações); para PostgreSQL use `TEST_DATABASE_URL` com um banco de teste, nunca o de produção.
@@ -136,7 +145,7 @@ data/             cenários iniciais (carregados no banco na primeira execução
 database/         conexão (SQLite ou PostgreSQL) e criação/migração das tabelas
 routes/           login/recuperação (auth), conta, histórico/ranking/finalização (painel) e supervisor
 repositories/     acesso ao banco (operadores, simulações, atendimentos, mensagens, avaliações)
-services/         regras: texto, semântica, tom, cliente reativo, avaliação, tempo, dicas, cenários, feedback e LLM
+services/         regras: texto, semântica, PLN opcional (spaCy), tom, cliente reativo, avaliação, tempo, dicas, cenários e feedback
 tests/            testes automatizados (python -m unittest discover -s tests -t .)
 templates/ static/  interface do chat, login, histórico e ranking
 ```

@@ -18,6 +18,7 @@ from functools import lru_cache
 
 import snowballstemmer
 
+from services import nlp_service
 from services.texto_service import SINONIMOS, normalizar_texto
 
 _stemmer = snowballstemmer.stemmer("portuguese")
@@ -83,16 +84,89 @@ def conceitos(texto: str) -> set:
 _NEGACAO_CORTES = re.compile(r"\bnao (se preocup\w*|hesit\w*|ha de que|tem de que)\b")
 
 
+def conceitos_e_lemas(texto: str) -> dict:
+    """
+    {conceito: lema} do texto. O lema (da forma como o spaCy o enxerga) só é usado para comparar
+    vetores de palavras; sem spaCy o lema é a própria palavra normalizada.
+    """
+    lema_do_token = {}
+    for original, lema, _ in nlp_service.analisar(texto):
+        lema_do_token.setdefault(normalizar_texto(original), lema)
+
+    resultado = {}
+    for palavra in normalizar_texto(texto).split():
+        if palavra in STOPWORDS or palavra in NEGACOES or len(palavra) < 2:
+            continue
+        radical = _radical(palavra)
+        conceito = _CONCEITO_DO_RADICAL.get(radical, radical)
+        resultado.setdefault(conceito, lema_do_token.get(palavra, palavra))
+    return resultado
+
+
+def conceitos_atendidos(esperados: dict, resposta: dict, minimo: float = 0.5) -> set:
+    """Conceitos esperados atendidos pela resposta, com pareamento um-para-um (uma palavra cobre uma ideia)."""
+    return {ce for (ce, _), credito in _parear(esperados, resposta).items() if credito >= minimo}
+
+
+def classificar_ideias(ideias: list, texto: str, minimo_fraco: float = 0.5):
+    """
+    Separa as ideias em (fortes, fracas) em relação ao texto, sem reaproveitar uma palavra do texto:
+      fortes - mesma ideia, sinônimo da lista ou erro de digitação (evidência segura, nunca por vetores);
+      fracas - só parecem próximas por vetores de palavras (evidência incerta).
+    As demais não foram encontradas. Quem fala com o usuário deve elogiar só as fortes e cobrar só as ausentes.
+    """
+    por_conceito, esperados, sem_conceito = {}, {}, set()
+    for palavra in ideias:
+        encontrados = conceitos_e_lemas(palavra)
+        if not encontrados:
+            sem_conceito.add(palavra)  # nada a comparar: não afirma nada
+        for conceito, lema in encontrados.items():
+            esperados.setdefault(conceito, lema)
+            por_conceito.setdefault(conceito, []).append(palavra)
+
+    pares = _parear(esperados, conceitos_e_lemas(texto))
+    fortes_c = {ce for (ce, cr), credito in pares.items() if _mesma_ideia(ce, cr)}
+    fracas_c = {ce for (ce, cr), credito in pares.items() if credito >= minimo_fraco and not _mesma_ideia(ce, cr)}
+
+    fortes = {p for c in fortes_c for p in por_conceito[c]}
+    fracas = {p for c in fracas_c for p in por_conceito[c]} - fortes
+    return fortes, fracas | sem_conceito
+
+
+def ideias_cobertas(ideias: list, texto: str, minimo: float = 0.5) -> set:
+    """Ideias que aparecem no texto, por qualquer evidência (forte ou fraca), sem reaproveitar uma palavra."""
+    fortes, fracas = classificar_ideias(ideias, texto, minimo_fraco=minimo)
+    return fortes | fracas
+
+
+def palavra_coberta(palavra: str, texto: str, minimo: float = 0.5) -> bool:
+    """A ideia da palavra aparece no texto? (mesmo conceito ou, com spaCy, sinônimo por vetores)."""
+    alvo = conceitos(palavra)
+    if not alvo:
+        return True
+    em_texto = conceitos_e_lemas(texto)
+    if alvo & set(em_texto):
+        return True
+    if nlp_service.disponivel():
+        lemas_alvo = nlp_service.palavras_de_conteudo(palavra) or [normalizar_texto(palavra)]
+        return any(nlp_service.credito_vetorial(a, b) >= minimo for a in lemas_alvo for b in em_texto.values())
+    return False
+
+
 def palavras_chave(texto: str, limite: int = 4) -> list:
     """
     Palavras mais características do texto (as de maior peso/raridade), na forma original
     e na ordem em que aparecem. Usado nas dicas do modo treino.
     """
     candidatas = {}  # conceito -> (peso, posição, palavra original)
+    de_conteudo = set(nlp_service.palavras_de_conteudo(texto))  # vazio sem spaCy
+    lema_do_token = {normalizar_texto(o): l for o, l, _ in nlp_service.analisar(texto)}
     for posicao, original in enumerate(re.findall(r"[^\W\d_]+", texto, re.UNICODE)):
         normal = normalizar_texto(original)
         if not normal or normal in STOPWORDS or normal in NEGACOES or len(normal) < 4:
             continue
+        if de_conteudo and lema_do_token.get(normal) not in de_conteudo:
+            continue  # com spaCy, só substantivos/verbos/adjetivos servem de pista
         radical = _radical(normal)
         conceito = _CONCEITO_DO_RADICAL.get(radical, radical)
         peso = _peso(conceito)
@@ -136,21 +210,60 @@ def _peso(conceito: str) -> float:
     return _IDF.get(conceito, _IDF_DESCONHECIDO)
 
 
-def _correspondencia(conceito: str, outro: set) -> float:
-    """1.0 se o conceito existe no outro conjunto; 0.8 se há um quase-igual (erro de digitação)."""
-    if conceito in outro:
+def _mesma_ideia(conceito_a: str, conceito_b: str) -> bool:
+    """Evidência segura: mesmo conceito (inclui sinônimos da lista) ou erro de digitação. Nunca vem de vetores."""
+    if conceito_a == conceito_b:
+        return True
+    return (len(conceito_a) >= 5 and len(conceito_b) >= 5
+            and SequenceMatcher(None, conceito_a, conceito_b).ratio() >= 0.86)
+
+
+def _credito_do_par(conceito_a: str, lema_a: str, conceito_b: str, lema_b: str) -> float:
+    """
+    Quanto um conceito vale no lugar do outro:
+      1.0 mesmo conceito; 0.8 quase igual (erro de digitação);
+      até 0.85 sinônimo por vetores de palavras (só com spaCy); 0 caso contrário.
+    """
+    if conceito_a == conceito_b:
         return 1.0
-    if len(conceito) >= 5:
-        for candidato in outro:
-            if len(candidato) >= 5 and SequenceMatcher(None, conceito, candidato).ratio() >= 0.86:
-                return 0.8
+    if (len(conceito_a) >= 5 and len(conceito_b) >= 5
+            and SequenceMatcher(None, conceito_a, conceito_b).ratio() >= 0.86):
+        return 0.8
+    if nlp_service.disponivel():
+        return nlp_service.credito_vetorial(lema_a, lema_b)
     return 0.0
+
+
+def _parear(c_esp: dict, c_resp: dict) -> dict:
+    """
+    Pareamento um-para-um guloso entre conceitos esperados e da resposta, do melhor crédito para o pior.
+    Evita que uma única palavra da resposta "cubra" vários conceitos esperados.
+    Retorna {(conceito_esperado, conceito_resposta): crédito}.
+    """
+    candidatos = []
+    for ce, le in c_esp.items():
+        for cr, lr in c_resp.items():
+            credito = _credito_do_par(ce, le, cr, lr)
+            if credito > 0:
+                # o cosseno bruto desempata créditos iguais (o teto de crédito esconde diferenças)
+                cosseno = (nlp_service.similaridade_palavras(le, lr) or 0.0) if credito < 1.0 else 1.0
+                candidatos.append((credito, cosseno, ce, cr))
+
+    candidatos.sort(key=lambda t: (-t[0], -t[1], t[2], t[3]))
+    usados_e, usados_r, pares = set(), set(), {}
+    for credito, _, ce, cr in candidatos:
+        if ce in usados_e or cr in usados_r:
+            continue
+        usados_e.add(ce)
+        usados_r.add(cr)
+        pares[(ce, cr)] = credito
+    return pares
 
 
 def similaridade(resposta: str, esperada: str) -> float:
     """Similaridade de significado entre a resposta do operador e a esperada (0 a 1)."""
-    c_resp = conceitos(resposta)
-    c_esp = conceitos(esperada)
+    c_resp = conceitos_e_lemas(resposta)
+    c_esp = conceitos_e_lemas(esperada)
 
     if not c_esp:
         return 0.0
@@ -160,8 +273,9 @@ def similaridade(resposta: str, esperada: str) -> float:
     soma_esp = sum(_peso(c) for c in c_esp)
     soma_resp = sum(_peso(c) for c in c_resp)
 
-    cobertura = sum(_peso(c) * _correspondencia(c, c_resp) for c in c_esp) / soma_esp
-    precisao = sum(_peso(c) * _correspondencia(c, c_esp) for c in c_resp) / soma_resp
+    pares = _parear(c_esp, c_resp)
+    cobertura = sum(_peso(ce) * credito for (ce, _), credito in pares.items()) / soma_esp
+    precisao = sum(_peso(cr) * credito for (_, cr), credito in pares.items()) / soma_resp
 
     # A cobertura importa mais: o operador pode acrescentar detalhes, mas não omitir o essencial.
     nota = 0.75 * cobertura + 0.25 * precisao
