@@ -63,6 +63,7 @@ Os cenários ficam no banco e são gerenciados em `/supervisor/cenarios`: títul
 
 - Editar **não** afeta simulações em andamento (cada atendimento guarda uma cópia do roteiro).
 - Cenários arquivados saem das próximas simulações; nunca é possível arquivar o último ativo.
+- **Regras de conduta por cenário:** no formulário do cenário o supervisor liga o controle de **pedidos de espera** ("um momento", "só um instante", "já retorno") e define quantos o cliente tolera (padrão 2). Até o limite o cliente aceita ("Tudo bem, aguardo"); a partir do seguinte reclama, depois fica atritado e, se o operador insistir, desiste. Pedir espera não conta como resposta (não gera nota nem faz o cliente repetir a pergunta). O limite é uma regra escondida: só aparece no treino, nunca na avaliação. Os pedidos entram no histórico e no feedback final.
 - `CENARIOS_POR_SIMULACAO=N` sorteia N cenários por simulação (padrão 0 = todos). Atenção: sorteio torna o ranking menos comparável, pois cada operador recebe cenários diferentes.
 
 ## Inteligência local (sem IA paga, sem chaves)

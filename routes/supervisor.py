@@ -27,6 +27,7 @@ from repositories.operador_repository import (
 from repositories.simulacao_repository import listar_simulacoes_do_operador, listar_todas_as_simulacoes
 from services.auth_service import gerar_hash, gerar_senha_temporaria
 from services.cenario_service import MAX_PASSOS, validar_cenario
+from services.conduta_service import REGRAS_PADRAO
 
 bp = Blueprint("supervisor", __name__, url_prefix="/supervisor")
 
@@ -216,6 +217,8 @@ def _formulario_cenario(cenario):
         "ordem": cenario["ordem"] if cenario else proxima_ordem(),
         "palavras": ", ".join(cenario["palavras_criticas"]) if cenario else "",
         "passos": list(cenario["fluxo"]) if cenario else [],
+        "espera_ativa": cenario["regras"]["espera"]["ativa"] if cenario else REGRAS_PADRAO["espera"]["ativa"],
+        "espera_max": cenario["regras"]["espera"]["max"] if cenario else REGRAS_PADRAO["espera"]["max"],
     }
 
     if request.method == "POST":
@@ -223,12 +226,16 @@ def _formulario_cenario(cenario):
             request.form.get("titulo"), request.form.get("ordem"), request.form.get("palavras"),
             request.form.getlist("cliente"), request.form.getlist("resposta"),
             ordem_padrao=valores["ordem"],
+            espera_ativa=request.form.get("espera_ativa") == "1",
+            espera_max=request.form.get("espera_max", ""),
         )
         valores = {
             "titulo": request.form.get("titulo", ""),
             "ordem": request.form.get("ordem", ""),
             "palavras": request.form.get("palavras", ""),
             "passos": _passos_do_formulario(),
+            "espera_ativa": request.form.get("espera_ativa") == "1",
+            "espera_max": request.form.get("espera_max", ""),
         }
 
         if not erros:

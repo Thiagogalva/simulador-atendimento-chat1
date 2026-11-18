@@ -34,7 +34,7 @@
                 {% endif %}
                 <ul class="lista-detalhe">
                 {% for d in s.detalhes %}
-                    <li><b>Cliente {{ d.id + 1 }} - {{ d.titulo }}</b>: nota {{ d.nota }} ({{ d.nivel }}) · {{ d.status }}</li>
+                    <li><b>Cliente {{ d.id + 1 }} - {{ d.titulo }}</b>: nota {{ d.nota }} ({{ d.nivel }}) · {{ d.status }}{% if d.pedidos_espera %} · pedidos de espera {{ d.pedidos_espera }}{% endif %}</li>
                 {% endfor %}
                 </ul></details>
             </td></tr>

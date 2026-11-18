@@ -215,3 +215,41 @@ def mensagem_proxima(decisao: dict, proxima_mensagem: str, semente: int) -> str:
     if categoria in PREFIXOS_AVANCAR:
         return f"{_escolher(PREFIXOS_AVANCAR[categoria], semente)} {proxima_mensagem}"
     return proxima_mensagem
+
+
+# ---------------------------------------------------------------- pedidos de espera
+
+ESPERA_ACEITA = [
+    "Tudo bem, aguardo.",
+    "Ok, pode verificar. Estou aguardando.",
+    "Certo, fico no aguardo.",
+    "Sem problemas, aguardo o seu retorno.",
+]
+ESPERA_EXCEDIDA = [
+    "Já é a {n}ª vez que você me pede um momento. Consegue me dar uma posição?",
+    "Estou esperando há muito tempo e ainda não tenho uma resposta. Preciso de uma posição agora.",
+]
+AUMENTO_POR_EXCESSO = {1: 20, 2: 25}
+EXCESSO_PARA_DESISTIR = 3  # 3 pedidos além do limite e o cliente vai embora
+
+
+def decidir_espera(pedidos: int, limite: int, irritacao: int) -> dict:
+    """
+    Reação do cliente ao `pedidos`-ésimo pedido de espera (contando este), sendo `limite` quantos ele tolera.
+    Retorna {"acao": "aguardar"|"reclamar"|"encerrar", "irritacao", "humor", "mensagem"}.
+    """
+    excesso = pedidos - limite
+    semente = pedidos
+
+    if excesso <= 0:
+        return {"acao": "aguardar", "irritacao": irritacao, "humor": humor_da_irritacao(irritacao),
+                "mensagem": _escolher(ESPERA_ACEITA, semente)}
+
+    nova = _limitar(irritacao + AUMENTO_POR_EXCESSO.get(excesso, 30))
+    if excesso >= EXCESSO_PARA_DESISTIR or nova >= LIMITE_ENCERRAMENTO:
+        return {"acao": "encerrar", "irritacao": max(nova, LIMITE_ENCERRAMENTO), "humor": "encerrado",
+                "mensagem": mensagem_encerramento(semente)}
+
+    modelo = _escolher(ESPERA_EXCEDIDA, excesso - 1)
+    return {"acao": "reclamar", "irritacao": nova, "humor": humor_da_irritacao(nova),
+            "mensagem": modelo.format(n=pedidos)}

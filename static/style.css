@@ -584,3 +584,6 @@ button:active {
     margin-top: 8px; font-size: 14px; line-height: 1.5; color: #243b53;
 }
 .feedback-texto { margin: 8px 0; }
+
+.linha-checkbox { flex-direction: row !important; align-items: center; gap: 8px !important; }
+.linha-checkbox input { width: auto; }

@@ -17,6 +17,7 @@ from routes.painel import bp as painel_bp
 from routes.supervisor import bp as supervisor_bp
 from services.auth_service import fingerprint_senha
 from routes.seguranca import csrf_valido, token_csrf
+from services.conduta_service import pedido_de_espera
 from services.dica_service import NIVEL_MAXIMO, gerar_dica
 from repositories.atendimento_repository import (
     limpar_simulacao_usuario,
@@ -55,6 +56,8 @@ from services.avaliacao_service import (
 )
 from services.tom_service import analisar_tom
 from services.cliente_service import (
+    COERENCIA_BOA,
+    decidir_espera,
     decidir_reacao,
     mensagem_encerramento,
     mensagem_repeticao,
@@ -75,6 +78,15 @@ app.register_blueprint(supervisor_bp)
 
 if SECRET_KEY == "dev-only-troque-em-producao" and not DEBUG:
     app.logger.warning("SECRET_KEY padrão em uso. Defina a variável de ambiente SECRET_KEY em produção.")
+
+def _info_de_espera(at: dict) -> dict:
+    """Contagem de pedidos de espera. O limite é uma regra "escondida": só aparece no treino."""
+    info = {"pedidos_espera": at["pedidos_espera"]}
+    espera = at["regras"]["espera"]
+    if at["modo"] == MODO_TREINO and espera["ativa"]:
+        info["limite_espera"] = espera["max"]
+    return info
+
 
 def resposta_api_atendimento(at, qtd_erros=0, erros_detalhados=None, avisos=None, tempo_resposta=0):
     if erros_detalhados is None:
@@ -101,6 +113,7 @@ def resposta_api_atendimento(at, qtd_erros=0, erros_detalhados=None, avisos=None
         "total_passos": len(at["fluxo"]),
         "dica_nivel": at["dica_nivel"],
         "dicas_usadas": at["dicas_usadas"],
+        **_info_de_espera(at),
         "finalizado": at["finalizado"],
         "bloqueado_tempo": at["bloqueado_tempo"],
         "liberado_em": at["liberado_em"],
@@ -166,13 +179,14 @@ def injetar_csrf():
     return {"csrf_token": token_csrf}
 
 
-CAMPOS_PRIVADOS = ("fluxo", "resposta_esperada", "palavras_criticas", "avaliacoes")
+CAMPOS_PRIVADOS = ("fluxo", "resposta_esperada", "palavras_criticas", "avaliacoes", "regras")
 
 
 def atendimento_publico(at: dict) -> dict:
     """O que pode ir para o navegador: nunca o roteiro nem as respostas esperadas."""
     publico = {k: v for k, v in at.items() if k not in CAMPOS_PRIVADOS}
     publico["total_passos"] = len(at["fluxo"])
+    publico.update(_info_de_espera(at))
     return publico
 
 def simulacao_em_andamento():
@@ -317,6 +331,28 @@ def feedback():
     return jsonify(resultado)
 
 
+def _reagir_a_pedido_de_espera(at: dict, limite: int, tempo_resposta_segundos: float):
+    at["pedidos_espera"] += 1
+    decisao = decidir_espera(at["pedidos_espera"], limite, at["irritacao"])
+    at["irritacao"] = decisao["irritacao"]
+    at["humor"] = decisao["humor"]  # a resposta da API usa este valor (ele só é recalculado ao recarregar)
+    at["bloqueado_tempo"] = False
+
+    if decisao["acao"] == "encerrar":
+        at["finalizado"] = True
+        at["encerrado_por_cliente"] = True
+        humor = "encerrado"
+    else:
+        humor = decisao["humor"] if (decisao["acao"] == "reclamar" or decisao["irritacao"] >= 30) else None
+
+    adicionar_mensagem(at["db_id"], "cliente", decisao["mensagem"], humor)
+    at["mensagens"].append({"tipo": "cliente", "texto": decisao["mensagem"], "humor": humor})
+    at["ultimo_tempo_backend"] = time.time()  # novo turno: o cliente aguarda o retorno do operador
+
+    salvar_estado_atendimento(at)
+    return jsonify(resposta_api_atendimento(at, tempo_resposta=tempo_resposta_segundos))
+
+
 @app.route("/responder", methods=["POST"])
 def responder():
     data = request.get_json()
@@ -423,6 +459,12 @@ def responder():
 
     if not tamanho_ok:
         coerencia = max(0, coerencia - 25)
+
+    # Pedido de espera ("um momento"): não é uma resposta ao que o cliente perguntou, então não gera nota
+    # nem faz o cliente repetir a pergunta. O cliente aceita até o limite do cenário e depois se irrita.
+    regra_espera = at["regras"]["espera"]
+    if regra_espera["ativa"] and pedido_de_espera(resposta) and coerencia < COERENCIA_BOA:
+        return _reagir_a_pedido_de_espera(at, regra_espera["max"], tempo_resposta_segundos)
 
     avaliacao = {
         "erros": qtd_erros,

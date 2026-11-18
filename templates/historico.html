@@ -87,7 +87,7 @@
                             <li>
                                 <b>Cliente {{ d.id + 1 }} - {{ d.titulo }}</b>:
                                 nota {{ d.nota }} ({{ d.nivel }}) · {{ d.status }} ·
-                                coerência {{ d.coerencia }}, empatia {{ d.empatia }}, tempo {{ d.tempo }}, erros {{ d.erros }}
+                                coerência {{ d.coerencia }}, empatia {{ d.empatia }}, tempo {{ d.tempo }}, erros {{ d.erros }}{% if d.pedidos_espera %}, pedidos de espera {{ d.pedidos_espera }}{% endif %}
                             </li>
                         {% endfor %}
                         </ul>

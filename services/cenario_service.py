@@ -1,6 +1,7 @@
 """Validação dos cenários criados/editados pelo supervisor."""
 import re
 
+from services.conduta_service import LIMITE_MAXIMO_ESPERA, REGRAS_PADRAO
 from services.texto_service import detectar_erros_linguisticos, normalizar_texto
 
 TITULO_MIN, TITULO_MAX = 3, 80
@@ -22,7 +23,8 @@ def separar_palavras_criticas(texto: str) -> list:
     return resultado
 
 
-def validar_cenario(titulo, ordem, palavras_texto, clientes, respostas, ordem_padrao: int = 0):
+def validar_cenario(titulo, ordem, palavras_texto, clientes, respostas, ordem_padrao: int = 0,
+                    espera_ativa: bool = True, espera_max="2"):
     """
     Retorna (erros, avisos, dados). `dados` só é confiável quando `erros` está vazio.
     Avisos (ortografia da resposta esperada etc.) não impedem o salvamento.
@@ -75,5 +77,15 @@ def validar_cenario(titulo, ordem, palavras_texto, clientes, respostas, ordem_pa
             if problemas:
                 avisos.append(f"Passo {numero} (resposta esperada): " + " ".join(problemas[:3]))
 
-    dados = {"titulo": titulo, "ordem": ordem_valor, "palavras_criticas": palavras, "fluxo": fluxo}
+    texto_limite = str(espera_max if espera_max is not None else "").strip()
+    try:
+        limite_espera = int(texto_limite) if texto_limite else REGRAS_PADRAO["espera"]["max"]  # em branco: padrão
+    except ValueError:
+        limite_espera = None
+    if limite_espera is None or not (0 <= limite_espera <= LIMITE_MAXIMO_ESPERA):
+        erros.append(f"O limite de pedidos de espera deve ser um número de 0 a {LIMITE_MAXIMO_ESPERA}.")
+        limite_espera = REGRAS_PADRAO["espera"]["max"]
+
+    regras = {"espera": {"ativa": bool(espera_ativa), "max": limite_espera}}
+    dados = {"titulo": titulo, "ordem": ordem_valor, "palavras_criticas": palavras, "fluxo": fluxo, "regras": regras}
     return erros, avisos, dados

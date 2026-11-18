@@ -137,6 +137,14 @@ def feedback_final(simulacao: dict, anterior: dict = None) -> dict:
         recorrente = max(contagem.items(), key=lambda item: item[1])[0]
         partes.append("Aviso mais frequente: " + (recorrente if recorrente.endswith(".") else recorrente + "."))
 
+    for d in detalhes:
+        limite = d.get("limite_espera")
+        if limite is not None and d.get("pedidos_espera", 0) > limite:
+            partes.append(
+                f"Em \"{d['titulo']}\" você pediu espera {d['pedidos_espera']} vezes (o cliente tolera até {limite}); "
+                "prefira dar uma posição parcial ao cliente antes de pedir outro momento."
+            )
+            break
     if simulacao["total_erros"]:
         partes.append(f"Foram {simulacao['total_erros']} erro(s) de português; revise antes de enviar.")
     if any(d.get("status") == "Encerrado pelo cliente" for d in detalhes):

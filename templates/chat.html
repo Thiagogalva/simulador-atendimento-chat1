@@ -37,6 +37,7 @@
 
         <div class="painel-metricas" id="painel-metricas">
             <span>Cliente: <b id="m-humor" class="humor-pill humor-calmo">Calmo</b></span>
+            <span id="m-espera-wrap" style="display:none">Esperas: <b id="m-espera">0</b></span>
             <span>Coerência: <b id="m-coerencia">0</b></span>
             <span>Empatia: <b id="m-empatia">0</b></span>
             <span>Tempo: <b id="m-tempo">0</b></span>
@@ -186,6 +187,14 @@ function atualizarPainel() {
     const pill = document.getElementById("m-humor");
     pill.innerText = ROTULO_HUMOR[humor] || "Calmo";
     pill.className = "humor-pill humor-" + humor;
+
+    const esperaWrap = document.getElementById("m-espera-wrap");
+    if (MODO === "treino" && at.limite_espera !== undefined && at.limite_espera !== null) {
+        esperaWrap.style.display = "";
+        document.getElementById("m-espera").innerText = (at.pedidos_espera || 0) + "/" + at.limite_espera;
+    } else {
+        esperaWrap.style.display = "none";
+    }
 
     document.getElementById("m-coerencia").innerText = Number(at.media_coerencia || 0).toFixed(1);
     document.getElementById("m-empatia").innerText = Number(at.media_empatia || 0).toFixed(1);
@@ -506,6 +515,8 @@ function enviar() {
             at.liberadoEm = Number(data.liberado_em);
         }
 
+        at.pedidos_espera = Number(data.pedidos_espera || 0);
+        at.limite_espera = data.limite_espera;
         at.etapa_atual = Number(data.etapa_atual || 0);
         at.total_passos = Number(data.total_passos || at.total_passos || 0);
         at.dica_nivel = Number(data.dica_nivel || 0);

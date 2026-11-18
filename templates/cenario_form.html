@@ -22,6 +22,20 @@
     </label>
     <p class="texto-auxiliar">Palavras ou ideias que o operador precisa mencionar. Elas valem pontos na coerência e viram dicas no modo treino.</p>
 
+    <fieldset class="passo">
+        <legend>Regras de conduta</legend>
+        <label class="linha-checkbox">
+            <input type="checkbox" name="espera_ativa" value="1" {{ 'checked' if valores.espera_ativa else '' }}>
+            Controlar pedidos de espera ("um momento", "só um instante", "já retorno")
+        </label>
+        <label>Pedidos tolerados antes de o cliente ficar atritado
+            <input type="number" name="espera_max" min="0" max="10" value="{{ valores.espera_max }}">
+        </label>
+        <p class="texto-auxiliar">O cliente aceita até esse número de pedidos. A partir do seguinte ele reclama, depois
+            fica atritado e, se o operador insistir, desiste. Pedir espera não conta como resposta fora de contexto.
+            Durante a avaliação o operador não vê esse limite.</p>
+    </fieldset>
+
     <h2>Passos da conversa</h2>
     <p class="texto-auxiliar">Cada passo é uma fala do cliente e a resposta ideal do operador (até {{ max_passos }} passos). Passos vazios são ignorados.</p>
 

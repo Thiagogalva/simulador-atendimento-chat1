@@ -53,6 +53,8 @@ def montar_resumo(atendimentos: list) -> dict:
             "status": status,
             "humor": at["humor"],
             "avisos": _avisos_frequentes(at["avaliacoes"]),
+            "pedidos_espera": at["pedidos_espera"],
+            "limite_espera": at["regras"]["espera"]["max"] if at["regras"]["espera"]["ativa"] else None,
         })
 
     nota_geral = round(mean(d["nota"] for d in detalhes), 1) if detalhes else 0.0

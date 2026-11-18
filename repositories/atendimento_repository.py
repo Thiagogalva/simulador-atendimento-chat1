@@ -8,6 +8,7 @@ from repositories.mensagem_repository import buscar_mensagens
 from repositories.avaliacao_repository import buscar_avaliacoes
 from services.tempo_service import calcular_liberado_em, atendimento_expirado
 from services.cliente_service import humor_da_irritacao
+from services.conduta_service import regras_efetivas
 
 def limpar_simulacao_usuario(usuario_uuid: str):
     conn = get_connection()
@@ -44,8 +45,8 @@ def inicializar_atendimentos_usuario(usuario_uuid: str, modo: str = "avaliacao")
                 usuario_uuid, id_publico, titulo, fluxo_json, etapa_atual,
                 total_erros, total_respostas, media_coerencia, media_empatia, media_tempo,
                 resposta_esperada, finalizado, bloqueado_tempo, ultimo_tempo_backend,
-                modo, palavras_criticas_json, cenario_id
-            ) VALUES (?, ?, ?, ?, 0, 0, 0, 0, 0, 0, ?, 0, 0, NULL, ?, ?, ?)
+                modo, palavras_criticas_json, cenario_id, regras_json
+            ) VALUES (?, ?, ?, ?, 0, 0, 0, 0, 0, 0, ?, 0, 0, NULL, ?, ?, ?, ?)
         """, (
             usuario_uuid,
             indice,
@@ -55,6 +56,7 @@ def inicializar_atendimentos_usuario(usuario_uuid: str, modo: str = "avaliacao")
             modo,
             json.dumps(cenario["palavras_criticas"], ensure_ascii=False),
             cenario["id"],
+            json.dumps(cenario["regras"], ensure_ascii=False),
         ))
 
         cursor.execute("""
@@ -95,6 +97,8 @@ def montar_atendimento_dict(row, cursor, simulacao_iniciada_em):
         "dica_nivel": row["dica_nivel"],
         "dicas_usadas": row["dicas_usadas"],
         "palavras_criticas": json.loads(row["palavras_criticas_json"] or "[]"),
+        "pedidos_espera": row["pedidos_espera"],
+        "regras": regras_efetivas(json.loads(row["regras_json"]) if row["regras_json"] else None),
         "mensagens": buscar_mensagens(cursor, row["id"]),
         "liberado_em": calcular_liberado_em(simulacao_iniciada_em, row["id_publico"], row["modo"])
     }
@@ -163,7 +167,8 @@ def salvar_estado_atendimento(at):
             tentativas_etapa = ?,
             encerrado_por_cliente = ?,
             dica_nivel = ?,
-            dicas_usadas = ?
+            dicas_usadas = ?,
+            pedidos_espera = ?
         WHERE id = ?
     """, (
         at["etapa_atual"],
@@ -181,6 +186,7 @@ def salvar_estado_atendimento(at):
         1 if at["encerrado_por_cliente"] else 0,
         at["dica_nivel"],
         at["dicas_usadas"],
+        at["pedidos_espera"],
         at["db_id"]
     ))
 

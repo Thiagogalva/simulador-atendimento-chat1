@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 import config
 from database.connection import get_connection
+from services.conduta_service import regras_efetivas
 
 
 def _agora_iso() -> str:
@@ -16,6 +17,7 @@ def _para_dict(row) -> dict:
         "titulo": row["titulo"],
         "fluxo": json.loads(row["fluxo_json"]),
         "palavras_criticas": json.loads(row["palavras_criticas_json"] or "[]"),
+        "regras": regras_efetivas(json.loads(row["regras_json"]) if row["regras_json"] else None),
         "ativo": bool(row["ativo"]),
         "ordem": row["ordem"],
         "criado_em": row["criado_em"],
@@ -56,10 +58,11 @@ def criar_cenario(dados: dict, criado_por=None) -> int:
     conn = get_connection()
     try:
         novo_id = conn.cursor().inserir(
-            "INSERT INTO cenarios (titulo, fluxo_json, palavras_criticas_json, ativo, ordem, criado_por, criado_em, atualizado_em) "
-            "VALUES (?, ?, ?, 1, ?, ?, ?, ?)",
+            "INSERT INTO cenarios (titulo, fluxo_json, palavras_criticas_json, regras_json, ativo, ordem, criado_por, criado_em, atualizado_em) "
+            "VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)",
             (dados["titulo"], json.dumps(dados["fluxo"], ensure_ascii=False),
-             json.dumps(dados["palavras_criticas"], ensure_ascii=False), dados["ordem"], criado_por, agora, agora),
+             json.dumps(dados["palavras_criticas"], ensure_ascii=False),
+             json.dumps(dados.get("regras", {}), ensure_ascii=False), dados["ordem"], criado_por, agora, agora),
         )
         conn.commit()
         return novo_id
@@ -71,10 +74,11 @@ def atualizar_cenario(cenario_id: int, dados: dict):
     conn = get_connection()
     try:
         conn.cursor().execute(
-            "UPDATE cenarios SET titulo = ?, fluxo_json = ?, palavras_criticas_json = ?, ordem = ?, atualizado_em = ? "
+            "UPDATE cenarios SET titulo = ?, fluxo_json = ?, palavras_criticas_json = ?, regras_json = ?, ordem = ?, atualizado_em = ? "
             "WHERE id = ?",
             (dados["titulo"], json.dumps(dados["fluxo"], ensure_ascii=False),
-             json.dumps(dados["palavras_criticas"], ensure_ascii=False), dados["ordem"], _agora_iso(), cenario_id),
+             json.dumps(dados["palavras_criticas"], ensure_ascii=False),
+             json.dumps(dados.get("regras", {}), ensure_ascii=False), dados["ordem"], _agora_iso(), cenario_id),
         )
         conn.commit()
     finally:

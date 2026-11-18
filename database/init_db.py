@@ -14,6 +14,11 @@ COLUNAS_NOVAS = {
         "dicas_usadas": "INTEGER NOT NULL DEFAULT 0",
         "cenario_id": "INTEGER",
         "palavras_criticas_json": "TEXT",
+        "pedidos_espera": "INTEGER NOT NULL DEFAULT 0",
+        "regras_json": "TEXT",
+    },
+    "cenarios": {
+        "regras_json": "TEXT",
     },
     "operadores": {
         "papel": "TEXT NOT NULL DEFAULT 'operador'",
