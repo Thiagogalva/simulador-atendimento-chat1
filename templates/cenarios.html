@@ -19,6 +19,7 @@
                 <td>{{ 'Ativo' if c.ativo else 'Arquivado' }}</td>
                 <td><time class="data-local" datetime="{{ c.atualizado_em }}">{{ c.atualizado_em }}</time></td>
                 <td class="acoes">
+                    <a class="botao-pequeno" style="background:#094b84; color:white;" href="{{ url_for('supervisor.calibrador_cenario', cenario_id=c.id) }}">Calibrar</a>
                     <a class="botao-pequeno" href="{{ url_for('supervisor.cenario_editar', cenario_id=c.id) }}">Editar</a>
                     <form method="post" action="{{ url_for('supervisor.cenario_ativo', cenario_id=c.id) }}" class="form-inline">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

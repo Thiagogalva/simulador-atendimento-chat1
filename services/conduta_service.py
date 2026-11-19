@@ -40,14 +40,18 @@ def pedido_de_espera(texto: str) -> bool:
 def regras_efetivas(regras) -> dict:
     """Mescla as regras salvas com o padrão e garante tipos/limites válidos."""
     efetivas = copy.deepcopy(REGRAS_PADRAO)
-    espera = (regras or {}).get("espera") if isinstance(regras, dict) else None
-    if isinstance(espera, dict):
-        if "ativa" in espera:
-            efetivas["espera"]["ativa"] = bool(espera["ativa"])
-        if "max" in espera:
-            try:
-                valor = int(espera["max"])
-            except (TypeError, ValueError):
-                valor = REGRAS_PADRAO["espera"]["max"]
-            efetivas["espera"]["max"] = max(0, min(LIMITE_MAXIMO_ESPERA, valor))
+    if isinstance(regras, dict):
+        for k, v in regras.items():
+            if k != "espera":
+                efetivas[k] = v
+        espera = regras.get("espera")
+        if isinstance(espera, dict):
+            if "ativa" in espera:
+                efetivas["espera"]["ativa"] = bool(espera["ativa"])
+            if "max" in espera:
+                try:
+                    valor = int(espera["max"])
+                except (TypeError, ValueError):
+                    valor = REGRAS_PADRAO["espera"]["max"]
+                efetivas["espera"]["max"] = max(0, min(LIMITE_MAXIMO_ESPERA, valor))
     return efetivas

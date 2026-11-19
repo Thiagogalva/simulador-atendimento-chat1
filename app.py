@@ -18,6 +18,8 @@ from routes.supervisor import bp as supervisor_bp
 from services.auth_service import fingerprint_senha
 from routes.seguranca import csrf_valido, token_csrf
 from services.conduta_service import pedido_de_espera
+from services.calibrador_service import avaliar_resposta_processo
+from services.semantica_service import similaridade
 from services.dica_service import NIVEL_MAXIMO, gerar_dica
 from repositories.atendimento_repository import (
     limpar_simulacao_usuario,
@@ -126,7 +128,10 @@ def resposta_api_atendimento(at, qtd_erros=0, erros_detalhados=None, avisos=None
 
 ENDPOINTS_PUBLICOS = {"auth.login", "auth.registro", "auth.recuperar", "static"}
 ENDPOINTS_SENHA_TEMPORARIA = {"conta.senha", "auth.sair"}
-ENDPOINTS_JSON = {"responder", "dica", "feedback", "painel.finalizar", "painel.feedback_final"}
+ENDPOINTS_JSON = {
+    "responder", "dica", "feedback", "painel.finalizar", "painel.feedback_final",
+    "supervisor.calibrador_extrair_ancoras", "supervisor.calibrador_simular_resposta", "supervisor.calibrador_salvar_passo"
+}
 
 
 @app.before_request
@@ -413,7 +418,11 @@ def responder():
     inicio_turno = calcular_inicio_turno(at, simulacao_iniciada_em)
     tempo_resposta_segundos = round(max(0, time.time() - inicio_turno), 1)
 
-    at["resposta_esperada"] = at["fluxo"][etapa]["resposta_esperada"]
+    desvio_ativo = at.get("regras", {}).get("desvio_ativo")
+    if desvio_ativo:
+        at["resposta_esperada"] = desvio_ativo.get("reorientacao_esperada", at["fluxo"][etapa]["resposta_esperada"])
+    else:
+        at["resposta_esperada"] = at["fluxo"][etapa]["resposta_esperada"]
 
     respostas_anteriores = [m["texto"] for m in at["mensagens"] if m["tipo"] == "operador"]
 
@@ -496,6 +505,85 @@ def responder():
 
     at["bloqueado_tempo"] = False
 
+    agora = time.time()
+    semente = at["db_id"] + etapa + at["tentativas_etapa"]
+
+    def responder_como_cliente(texto, humor):
+        adicionar_mensagem(at["db_id"], "cliente", texto, humor)
+        at["mensagens"].append({"tipo": "cliente", "texto": texto, "humor": humor})
+
+    desvio_ativo = at.get("regras", {}).get("desvio_ativo")
+    passo_atual = at["fluxo"][etapa]
+
+    if desvio_ativo:
+        reorientacao = desvio_ativo.get("reorientacao_esperada", at["resposta_esperada"])
+        sim_reorient = similaridade(resposta, reorientacao)
+        if sim_reorient >= 0.45 or coerencia >= 50:
+            at["regras"]["desvio_ativo"] = None
+            at["tentativas_etapa"] = 0
+            at["dica_nivel"] = 0
+            at["etapa_atual"] += 1
+            reconhecimento = desvio_ativo.get("reconhecimento_cliente", "Certo, agora sim entendi. Obrigado.")
+            if at["etapa_atual"] < len(at["fluxo"]):
+                proxima_msg = at["fluxo"][at["etapa_atual"]]["cliente"]
+                humor_msg = "impaciente" if at["irritacao"] >= 30 else None
+                responder_como_cliente(f"{reconhecimento} {proxima_msg}", humor_msg)
+                at["resposta_esperada"] = at["fluxo"][at["etapa_atual"]]["resposta_esperada"]
+            else:
+                responder_como_cliente(reconhecimento, "calmo")
+                at["finalizado"] = True
+            at["ultimo_tempo_backend"] = agora
+            salvar_estado_atendimento(at)
+            at = buscar_atendimento_usuario(session["usuario_id"], id_atendimento, simulacao_iniciada_em)
+            return jsonify(resposta_api_atendimento(
+                at,
+                qtd_erros=qtd_erros,
+                erros_detalhados=erros,
+                avisos=avisos,
+                tempo_resposta=tempo_resposta_segundos
+            ))
+        else:
+            at["tentativas_etapa"] += 1
+            at["irritacao"] = min(100, at["irritacao"] + 15)
+            if at["tentativas_etapa"] >= 2 or at["irritacao"] >= 85:
+                responder_como_cliente(mensagem_encerramento(semente), "encerrado")
+                at["finalizado"] = True
+                at["encerrado_por_cliente"] = True
+            else:
+                fala_insistencia = f"Ainda preciso disso: {desvio_ativo.get('reforco_cliente')}"
+                responder_como_cliente(fala_insistencia, "atritado")
+            at["ultimo_tempo_backend"] = agora
+            salvar_estado_atendimento(at)
+            at = buscar_atendimento_usuario(session["usuario_id"], id_atendimento, simulacao_iniciada_em)
+            return jsonify(resposta_api_atendimento(
+                at,
+                qtd_erros=qtd_erros,
+                erros_detalhados=erros,
+                avisos=avisos,
+                tempo_resposta=tempo_resposta_segundos
+            ))
+
+    elif passo_atual.get("desvios") or passo_atual.get("ancoras"):
+        avaliacao_proc = avaliar_resposta_processo(resposta, passo_atual)
+        if avaliacao_proc.get("desvio_disparado"):
+            desvio = avaliacao_proc["desvio_disparado"]
+            at["regras"]["desvio_ativo"] = desvio
+            at["tentativas_etapa"] += 1
+            at["irritacao"] = min(100, at["irritacao"] + 10)
+            humor_reforco = "atritado" if at["irritacao"] >= 60 else ("impaciente" if at["irritacao"] >= 30 else "calmo")
+            responder_como_cliente(desvio["reforco_cliente"], humor_reforco)
+            at["resposta_esperada"] = desvio.get("reorientacao_esperada", passo_atual["resposta_esperada"])
+            at["ultimo_tempo_backend"] = agora
+            salvar_estado_atendimento(at)
+            at = buscar_atendimento_usuario(session["usuario_id"], id_atendimento, simulacao_iniciada_em)
+            return jsonify(resposta_api_atendimento(
+                at,
+                qtd_erros=qtd_erros,
+                erros_detalhados=erros,
+                avisos=avisos,
+                tempo_resposta=tempo_resposta_segundos
+            ))
+
     # O cliente simulado reage à qualidade da resposta (ver services/cliente_service.py).
     decisao = decidir_reacao(
         coerencia=coerencia,
@@ -507,13 +595,7 @@ def responder():
         tentativas_etapa=at["tentativas_etapa"],
         ultima_etapa=(etapa == len(at["fluxo"]) - 1)
     )
-    semente = at["db_id"] + etapa + at["tentativas_etapa"]
     at["irritacao"] = decisao["irritacao"]
-    agora = time.time()
-
-    def responder_como_cliente(texto, humor):
-        adicionar_mensagem(at["db_id"], "cliente", texto, humor)
-        at["mensagens"].append({"tipo": "cliente", "texto": texto, "humor": humor})
 
     if decisao["acao"] == "encerrar":
         responder_como_cliente(mensagem_encerramento(semente), "encerrado")

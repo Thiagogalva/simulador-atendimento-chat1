@@ -1,0 +1,416 @@
+{% extends "base.html" %}
+{% block titulo %}Calibrador de Processos - Supervisor{% endblock %}
+{% block conteudo %}
+<p><a href="{{ url_for('supervisor.painel') }}">&larr; Voltar ao painel</a></p>
+
+<div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
+    <div>
+        <h1 style="margin:0 0 6px;">Calibrador de Processos (Modo Especialista)</h1>
+        <p class="texto-auxiliar" style="margin:0;">
+            Ensine o simulador enviando respostas modelo do procedimento e definindo falas de reforço caso o operador desvie do processo.
+        </p>
+    </div>
+    <div>
+        <label for="select-cenario" style="font-size:13px; font-weight:bold; color:#444;">Cenário:</label>
+        <select id="select-cenario" onchange="mudarCenario(this.value)" style="padding:8px 12px; border-radius:8px; border:1px solid #c9d0db; font-size:14px;">
+            {% for c in cenarios %}
+            <option value="{{ c.id }}" {% if c.id == cenario.id %}selected{% endif %}>{{ c.ordem }} - {{ c.titulo }} ({{ c.fluxo|length }} passos)</option>
+            {% endfor %}
+        </select>
+    </div>
+</div>
+
+<!-- Barra de navegação dos passos -->
+<div class="cartao" style="display:flex; justify-content:space-between; align-items:center; padding:12px 18px; margin-bottom:14px;">
+    <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-weight:bold; font-size:15px;">Passo {{ passo_idx + 1 }} de {{ total_passos }}</span>
+    </div>
+    <div style="display:flex; gap:8px;">
+        {% if passo_idx > 0 %}
+        <a class="botao-pequeno" href="{{ url_for('supervisor.calibrador_cenario', cenario_id=cenario.id, passo=passo_idx - 1) }}">&larr; Anterior</a>
+        {% endif %}
+        {% if passo_idx < total_passos - 1 %}
+        <a class="botao-pequeno" href="{{ url_for('supervisor.calibrador_cenario', cenario_id=cenario.id, passo=passo_idx + 1) }}">Próximo &rarr;</a>
+        {% endif %}
+    </div>
+</div>
+
+<div style="display:grid; grid-template-columns: 1fr 1fr; gap:18px;">
+    <!-- Coluna Esquerda: Definição do Passo e Respostas Modelo -->
+    <div>
+        <!-- 1. Fala do Cliente -->
+        <section class="cartao">
+            <h2>1. Fala do Cliente Simulado</h2>
+            <p class="texto-auxiliar" style="margin-top:0;">O que o cliente diz nesta etapa do atendimento.</p>
+            <textarea id="passo-cliente" rows="3" style="width:100%; box-sizing:border-box; padding:10px; border-radius:8px; border:1px solid #c9d0db; font-size:14px; resize:vertical;">{{ passo_atual.cliente if passo_atual else '' }}</textarea>
+        </section>
+
+        <!-- 2. Padrão Ouro (Respostas Modelo) -->
+        <section class="cartao">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <h2 style="margin:0;">2. Respostas Corretas do Especialista</h2>
+                <button type="button" class="botao-pequeno" onclick="adicionarRespostaAceita()">+ Outra variação</button>
+            </div>
+            <p class="texto-auxiliar" style="margin-top:0;">Digite uma ou mais formas aceitáveis de responder corretamente a esta fala.</p>
+
+            <label style="font-size:13px; font-weight:bold; color:#444; display:block; margin-bottom:4px;">Resposta Padrão (Principal):</label>
+            <textarea id="resposta-principal" rows="3" style="width:100%; box-sizing:border-box; padding:10px; border-radius:8px; border:1px solid #c9d0db; font-size:14px; margin-bottom:12px; resize:vertical;">{{ passo_atual.resposta_esperada if passo_atual else '' }}</textarea>
+
+            <div id="container-respostas-aceitas">
+                {% if passo_atual and passo_atual.respostas_aceitas %}
+                    {% for resp in passo_atual.respostas_aceitas %}
+                    <div class="bloco-resposta-aceita" style="margin-bottom:10px; display:flex; gap:8px;">
+                        <textarea rows="2" class="campo-resposta-aceita" style="flex:1; padding:8px; border-radius:8px; border:1px solid #c9d0db; font-size:14px; resize:vertical;">{{ resp }}</textarea>
+                        <button type="button" class="botao-pequeno" style="background:#e57373; color:white; align-self:flex-start;" onclick="removerRespostaAceita(this)">✕</button>
+                    </div>
+                    {% endfor %}
+                {% endif %}
+            </div>
+
+            <div style="margin-top:14px; padding-top:12px; border-top:1px solid #eee;">
+                <button type="button" class="botao-primario" onclick="extrairAncorasAutomaticas()" style="width:100%; background:#094b84;">
+                    ⚡ Extrair Conceitos-Âncora Automaticamente
+                </button>
+                <div style="margin-top:10px;">
+                    <span style="font-size:12px; font-weight:bold; color:#555;">Âncoras Obrigatórias do Procedimento (radicais necessários):</span>
+                    <div id="container-ancoras" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;">
+                        {% if passo_atual and passo_atual.ancoras %}
+                            {% for anc in passo_atual.ancoras %}
+                            <span class="badge-ancora" style="background:#e3f2fd; color:#0d47a1; border:1px solid #bbdefb; border-radius:14px; padding:4px 10px; font-size:13px; display:inline-flex; align-items:center; gap:6px;">
+                                {{ anc }} <a href="javascript:void(0)" onclick="removerAncora(this)" style="color:#d32f2f; text-decoration:none; font-weight:bold;">&times;</a>
+                            </span>
+                            {% endfor %}
+                        {% else %}
+                            <span id="texto-sem-ancoras" style="font-size:12px; color:#888; font-style:italic;">Nenhuma âncora definida. Clique no botão acima para extrair das respostas.</span>
+                        {% endif %}
+                    </div>
+                    <div style="margin-top:8px; display:flex; gap:6px;">
+                        <input type="text" id="nova-ancora-input" placeholder="Adicionar âncora manual..." style="flex:1; padding:6px 10px; border-radius:6px; border:1px solid #c9d0db; font-size:13px;">
+                        <button type="button" class="botao-pequeno" onclick="adicionarAncoraManual()">+ Adicionar</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Coluna Direita: Desvios, Reforços e Teste ao Vivo -->
+    <div>
+        <!-- 3. Mapeamento de Desvios Comuns e Fala de Reforço -->
+        <section class="cartao">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                <h2 style="margin:0;">3. Desvios e Falas de Reforço</h2>
+                <button type="button" class="botao-pequeno" onclick="adicionarDesvio()">+ Mapear Desvio</button>
+            </div>
+            <p class="texto-auxiliar" style="margin-top:0;">Se o operador errar ou omitir algo crítico, o cliente não repete a pergunta: ele confronta o operador com a fala de reforço.</p>
+
+            <div id="container-desvios">
+                {% if passo_atual and passo_atual.desvios %}
+                    {% for desvio in passo_atual.desvios %}
+                    <div class="cartao-desvio" style="background:#fdfcfc; border:1px solid #e0e0e0; border-left:4px solid #ff9800; border-radius:8px; padding:12px; margin-bottom:12px;">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                            <strong style="font-size:14px; color:#d84315;">Desvio do Processo</strong>
+                            <button type="button" class="botao-pequeno" style="background:#e57373; color:white;" onclick="removerDesvio(this)">Excluir</button>
+                        </div>
+                        <label style="font-size:12px; color:#555;">Descrição do erro (ex: Não pediu CPF/dados):</label>
+                        <input type="text" class="desvio-desc" value="{{ desvio.descricao }}" style="width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #ccc; border-radius:6px; font-size:13px; margin-bottom:6px;">
+
+                        <label style="font-size:12px; color:#555;">Termo/Âncora que faltou na resposta do operador:</label>
+                        <input type="text" class="desvio-termo" value="{{ desvio.gatilho.termos_faltantes|join(', ') if desvio.gatilho and desvio.gatilho.termos_faltantes else '' }}" placeholder="Ex: cpf, dados, confirmacao" style="width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #ccc; border-radius:6px; font-size:13px; margin-bottom:6px;">
+
+                        <label style="font-size:12px; font-weight:bold; color:#c62828;">💬 O Cliente rebate com este Reforço:</label>
+                        <textarea class="desvio-reforco" rows="2" style="width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #ffcdd2; border-radius:6px; font-size:13px; margin-bottom:6px; resize:vertical;">{{ desvio.reforco_cliente }}</textarea>
+
+                        <label style="font-size:12px; font-weight:bold; color:#2e7d32;">🎯 Resposta esperada do Operador ao ser reorientado:</label>
+                        <textarea class="desvio-reorientacao" rows="2" style="width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #c8e6c9; border-radius:6px; font-size:13px; resize:vertical;">{{ desvio.reorientacao_esperada }}</textarea>
+                    </div>
+                    {% endfor %}
+                {% endif %}
+            </div>
+            <div id="msg-sem-desvios" style="{% if passo_atual and passo_atual.desvios %}display:none;{% endif %} font-size:13px; color:#888; font-style:italic; padding:8px 0;">
+                Nenhum desvio cadastrado. Se o operador errar, o cliente usará a repetição padrão.
+            </div>
+        </section>
+
+        <!-- 4. Simulador de Teste em Tempo Real -->
+        <section class="cartao" style="background:#f4f9fd; border-color:#bcdffb;">
+            <h2 style="margin:0 0 6px; color:#0d47a1;">4. Teste em Tempo Real (Simular Operador)</h2>
+            <p class="texto-auxiliar" style="margin-top:0;">Digite uma resposta de teste para ver como o cliente reagiria com a calibração atual:</p>
+            <textarea id="resposta-teste" rows="2" placeholder="Ex: Vou verificar no sistema agora mesmo." style="width:100%; box-sizing:border-box; padding:8px 10px; border-radius:8px; border:1px solid #90caf9; font-size:14px; margin-bottom:8px; resize:vertical;"></textarea>
+            <button type="button" class="botao-primario" onclick="testarReacao()" style="background:#1976d2; width:100%;">Testar Reação do Cliente</button>
+
+            <div id="resultado-teste" style="display:none; margin-top:12px; padding:12px; border-radius:8px; font-size:13px;"></div>
+        </section>
+
+        <!-- Botão Salvar Calibração -->
+        <div style="margin-top:18px;">
+            <button type="button" class="botao-primario" onclick="salvarCalibracaoPasso()" style="width:100%; font-size:16px; padding:14px; background:#2e7d32;">
+                💾 Salvar Calibração deste Passo
+            </button>
+            <div id="msg-salvo" style="display:none; margin-top:10px; padding:10px; border-radius:8px; background:#e8f5e9; color:#2e7d32; font-weight:bold; text-align:center;">
+                ✅ Calibração salva com sucesso!
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const CSRF_TOKEN = "{{ csrf_token() }}";
+const CENARIO_ID = {{ cenario.id }};
+const PASSO_IDX = {{ passo_idx }};
+
+function mudarCenario(novoId) {
+    window.location.href = "{{ url_for('supervisor.calibrador') }}/" + novoId;
+}
+
+function adicionarRespostaAceita(texto = "") {
+    const container = document.getElementById("container-respostas-aceitas");
+    const div = document.createElement("div");
+    div.className = "bloco-resposta-aceita";
+    div.style = "margin-bottom:10px; display:flex; gap:8px;";
+    div.innerHTML = `
+        <textarea rows="2" class="campo-resposta-aceita" placeholder="Outra forma correta de responder..." style="flex:1; padding:8px; border-radius:8px; border:1px solid #c9d0db; font-size:14px; resize:vertical;">${texto}</textarea>
+        <button type="button" class="botao-pequeno" style="background:#e57373; color:white; align-self:flex-start;" onclick="removerRespostaAceita(this)">✕</button>
+    `;
+    container.appendChild(div);
+}
+
+function removerRespostaAceita(btn) {
+    btn.parentElement.remove();
+}
+
+function coletarRespostas() {
+    const principal = document.getElementById("resposta-principal").value.trim();
+    const aceitas = Array.from(document.querySelectorAll(".campo-resposta-aceita"))
+        .map(t => t.value.trim())
+        .filter(t => t.length > 0);
+    return [principal, ...aceitas].filter(t => t.length > 0);
+}
+
+function extrairAncorasAutomaticas() {
+    const respostas = coletarRespostas();
+    if (respostas.length === 0) {
+        alert("Preencha ao menos uma resposta correta para extrair as âncoras.");
+        return;
+    }
+
+    fetch("{{ url_for('supervisor.calibrador_extrair_ancoras') }}", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": CSRF_TOKEN
+        },
+        body: JSON.stringify({ respostas: respostas })
+    })
+    .then(r => r.json())
+    .then(data => {
+        const container = document.getElementById("container-ancoras");
+        container.innerHTML = "";
+        const sem = document.getElementById("texto-sem-ancoras");
+        if (sem) sem.remove();
+
+        if (data.ancoras && data.ancoras.length > 0) {
+            data.ancoras.forEach(anc => {
+                adicionarBadgeAncora(anc);
+            });
+        } else {
+            container.innerHTML = '<span style="font-size:12px; color:#888; font-style:italic;">Nenhuma âncora comum encontrada. Adicione manualmente abaixo.</span>';
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        alert("Erro ao extrair âncoras.");
+    });
+}
+
+function adicionarBadgeAncora(texto) {
+    const container = document.getElementById("container-ancoras");
+    const span = document.createElement("span");
+    span.className = "badge-ancora";
+    span.style = "background:#e3f2fd; color:#0d47a1; border:1px solid #bbdefb; border-radius:14px; padding:4px 10px; font-size:13px; display:inline-flex; align-items:center; gap:6px;";
+    span.innerHTML = `${texto} <a href="javascript:void(0)" onclick="removerAncora(this)" style="color:#d32f2f; text-decoration:none; font-weight:bold;">&times;</a>`;
+    span.setAttribute("data-ancora", texto);
+    container.appendChild(span);
+}
+
+function removerAncora(link) {
+    link.parentElement.remove();
+}
+
+function adicionarAncoraManual() {
+    const input = document.getElementById("nova-ancora-input");
+    const val = input.value.trim().toLowerCase();
+    if (val) {
+        adicionarBadgeAncora(val);
+        input.value = "";
+    }
+}
+
+function coletarAncoras() {
+    return Array.from(document.querySelectorAll(".badge-ancora"))
+        .map(el => el.getAttribute("data-ancora") || el.innerText.replace("×", "").trim())
+        .filter(a => a.length > 0);
+}
+
+function adicionarDesvio() {
+    document.getElementById("msg-sem-desvios").style.display = "none";
+    const container = document.getElementById("container-desvios");
+    const div = document.createElement("div");
+    div.className = "cartao-desvio";
+    div.style = "background:#fdfcfc; border:1px solid #e0e0e0; border-left:4px solid #ff9800; border-radius:8px; padding:12px; margin-bottom:12px;";
+    div.innerHTML = `
+        <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+            <strong style="font-size:14px; color:#d84315;">Desvio do Processo</strong>
+            <button type="button" class="botao-pequeno" style="background:#e57373; color:white;" onclick="removerDesvio(this)">Excluir</button>
+        </div>
+        <label style="font-size:12px; color:#555;">Descrição do erro (ex: Não pediu confirmação de dados):</label>
+        <input type="text" class="desvio-desc" placeholder="Ex: Esqueceu de confirmar CPF" style="width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #ccc; border-radius:6px; font-size:13px; margin-bottom:6px;">
+
+        <label style="font-size:12px; color:#555;">Termo/Âncora que faltou na resposta do operador:</label>
+        <input type="text" class="desvio-termo" placeholder="Ex: cpf, dados" style="width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #ccc; border-radius:6px; font-size:13px; margin-bottom:6px;">
+
+        <label style="font-size:12px; font-weight:bold; color:#c62828;">💬 O Cliente rebate com este Reforço:</label>
+        <textarea class="desvio-reforco" rows="2" placeholder="Ex: Mas você não vai nem confirmar meus dados antes?" style="width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #ffcdd2; border-radius:6px; font-size:13px; margin-bottom:6px; resize:vertical;"></textarea>
+
+        <label style="font-size:12px; font-weight:bold; color:#2e7d32;">🎯 Resposta esperada do Operador ao ser reorientado:</label>
+        <textarea class="desvio-reorientacao" rows="2" placeholder="Ex: Peço desculpas. Por segurança, confirme seu CPF." style="width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid #c8e6c9; border-radius:6px; font-size:13px; resize:vertical;"></textarea>
+    `;
+    container.appendChild(div);
+}
+
+function removerDesvio(btn) {
+    btn.closest(".cartao-desvio").remove();
+    if (document.querySelectorAll(".cartao-desvio").length === 0) {
+        document.getElementById("msg-sem-desvios").style.display = "block";
+    }
+}
+
+function coletarDesvios() {
+    const cards = document.querySelectorAll(".cartao-desvio");
+    const lista = [];
+    cards.forEach((card, idx) => {
+        const desc = card.querySelector(".desvio-desc").value.trim();
+        const termos = card.querySelector(".desvio-termo").value.split(",").map(t => t.trim().toLowerCase()).filter(t => t.length > 0);
+        const reforco = card.querySelector(".desvio-reforco").value.trim();
+        const reorientacao = card.querySelector(".desvio-reorientacao").value.trim();
+
+        if (reforco) {
+            lista.push({
+                id: "desvio_" + idx,
+                descricao: desc || ("Desvio " + (idx + 1)),
+                gatilho: {
+                    tipo: "ancora_faltante",
+                    termos_faltantes: termos
+                },
+                reforco_cliente: reforco,
+                reorientacao_esperada: reorientacao || document.getElementById("resposta-principal").value.trim()
+            });
+        }
+    });
+    return lista;
+}
+
+function montarPassoAtual() {
+    const principal = document.getElementById("resposta-principal").value.trim();
+    const aceitas = Array.from(document.querySelectorAll(".campo-resposta-aceita"))
+        .map(t => t.value.trim())
+        .filter(t => t.length > 0);
+    return {
+        cliente: document.getElementById("passo-cliente").value.trim(),
+        resposta_esperada: principal,
+        respostas_aceitas: aceitas,
+        ancoras: coletarAncoras(),
+        desvios: coletarDesvios()
+    };
+}
+
+function testarReacao() {
+    const resposta = document.getElementById("resposta-teste").value.trim();
+    if (!resposta) {
+        alert("Digite uma resposta de teste.");
+        return;
+    }
+    const passo = montarPassoAtual();
+
+    fetch("{{ url_for('supervisor.calibrador_simular_resposta') }}", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": CSRF_TOKEN
+        },
+        body: JSON.stringify({
+            resposta_teste: resposta,
+            passo: passo
+        })
+    })
+    .then(r => r.json())
+    .then(res => {
+        const box = document.getElementById("resultado-teste");
+        box.style.display = "block";
+        if (res.status === "reforco") {
+            box.style.background = "#fff3e0";
+            box.style.border = "1px solid #ffe0b2";
+            box.innerHTML = `
+                <div style="font-weight:bold; color:#e65100; margin-bottom:4px;">⚠️ Reforço disparado: ${res.motivo}</div>
+                <div style="font-size:14px; color:#222; margin-bottom:6px;"><b>Cliente rebatendo:</b> "${res.fala_cliente}"</div>
+                <div style="font-size:12px; color:#666;">O cliente não avança. O operador terá que responder: <i>"${res.proxima_esperada}"</i></div>
+            `;
+        } else if (res.status === "avancar") {
+            box.style.background = "#e8f5e9";
+            box.style.border = "1px solid #c8e6c9";
+            box.innerHTML = `
+                <div style="font-weight:bold; color:#2e7d32; margin-bottom:4px;">✅ Resposta Correta (Avança o Passo)</div>
+                <div style="font-size:14px; color:#222; margin-bottom:4px;"><b>Cliente:</b> "${res.fala_cliente}"</div>
+                <div style="font-size:12px; color:#666;">Similaridade estimada: ${(res.detalhes.similaridade * 100).toFixed(0)}%</div>
+            `;
+        } else {
+            box.style.background = "#fdeaea";
+            box.style.border = "1px solid #ef9a9a";
+            box.innerHTML = `
+                <div style="font-weight:bold; color:#c62828; margin-bottom:4px;">❌ Resposta Abaixo do Padrão (Repete a Pergunta)</div>
+                <div style="font-size:14px; color:#222; margin-bottom:4px;"><b>Cliente:</b> "${res.fala_cliente}"</div>
+                <div style="font-size:12px; color:#666;">Similaridade estimada: ${(res.detalhes.similaridade * 100).toFixed(0)}%</div>
+            `;
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        alert("Erro ao testar reação.");
+    });
+}
+
+function salvarCalibracaoPasso() {
+    const passo = montarPassoAtual();
+    if (!passo.cliente || !passo.resposta_esperada) {
+        alert("A fala do cliente e a resposta principal são obrigatórias.");
+        return;
+    }
+
+    fetch("{{ url_for('supervisor.calibrador_salvar_passo') }}", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": CSRF_TOKEN
+        },
+        body: JSON.stringify({
+            cenario_id: CENARIO_ID,
+            passo_idx: PASSO_IDX,
+            passo: passo
+        })
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.sucesso) {
+            const msg = document.getElementById("msg-salvo");
+            msg.style.display = "block";
+            setTimeout(() => { msg.style.display = "none"; }, 4000);
+        } else {
+            alert(res.erro || "Erro ao salvar calibração.");
+        }
+    })
+    .catch(err => {
+        console.error(err);
+        alert("Erro ao salvar calibração.");
+    });
+}
+</script>
+{% endblock %}

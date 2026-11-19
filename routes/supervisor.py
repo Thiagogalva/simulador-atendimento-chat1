@@ -3,7 +3,9 @@ import io
 from functools import wraps
 from statistics import mean
 
-from flask import Blueprint, Response, abort, flash, g, redirect, render_template, request, session, url_for
+from flask import Blueprint, Response, abort, flash, g, redirect, render_template, request, session, url_for, jsonify
+
+from services.calibrador_service import extrair_ancoras, simular_reacao_especialista
 
 from repositories.cenario_repository import (
     atualizar_cenario,
@@ -275,3 +277,83 @@ def cenario_ativo(cenario_id):
     registrar_auditoria(g.operador["id"], f"{'ativou' if ativar else 'arquivou'} o cenário \"{cenario['titulo']}\"")
     flash(f"Cenário {'ativado' if ativar else 'arquivado'}.", "ok")
     return redirect(url_for("supervisor.cenarios"))
+
+
+# ---------------------------------------------------------------- calibrador de processo (modo especialista)
+
+@bp.route("/calibrador")
+@requer_supervisor
+def calibrador():
+    cenarios = listar_cenarios()
+    if not cenarios:
+        flash("Nenhum cenário cadastrado para calibração.", "aviso")
+        return redirect(url_for("supervisor.cenarios"))
+    cenario_id = request.args.get("cenario_id")
+    if not cenario_id:
+        cenario_id = cenarios[0]["id"]
+    return redirect(url_for("supervisor.calibrador_cenario", cenario_id=cenario_id))
+
+
+@bp.route("/calibrador/<int:cenario_id>")
+@requer_supervisor
+def calibrador_cenario(cenario_id):
+    cenario = buscar_cenario(cenario_id)
+    if cenario is None:
+        abort(404)
+    cenarios = listar_cenarios()
+    passo_idx = int(request.args.get("passo", 0))
+    if passo_idx < 0 or passo_idx >= len(cenario["fluxo"]):
+        passo_idx = 0
+    passo_atual = cenario["fluxo"][passo_idx] if cenario["fluxo"] else None
+    return render_template(
+        "calibrador.html",
+        cenario=cenario,
+        cenarios=cenarios,
+        passo_idx=passo_idx,
+        passo_atual=passo_atual,
+        total_passos=len(cenario["fluxo"])
+    )
+
+
+@bp.route("/calibrador/extrair-ancoras", methods=["POST"])
+@requer_supervisor
+def calibrador_extrair_ancoras():
+    dados = request.get_json(silent=True) or {}
+    respostas = dados.get("respostas", [])
+    ancoras = extrair_ancoras(respostas)
+    return jsonify({"ancoras": ancoras})
+
+
+@bp.route("/calibrador/simular-resposta", methods=["POST"])
+@requer_supervisor
+def calibrador_simular_resposta():
+    dados = request.get_json(silent=True) or {}
+    resposta_teste = dados.get("resposta_teste", "")
+    passo = dados.get("passo", {})
+    resultado = simular_reacao_especialista(resposta_teste, passo)
+    return jsonify(resultado)
+
+
+@bp.route("/calibrador/salvar-passo", methods=["POST"])
+@requer_supervisor
+def calibrador_salvar_passo():
+    dados = request.get_json(silent=True) or {}
+    cenario_id = dados.get("cenario_id")
+    passo_idx = dados.get("passo_idx")
+    passo_calibrado = dados.get("passo")
+
+    if cenario_id is None or passo_idx is None or not passo_calibrado:
+        return jsonify({"erro": "Dados inválidos."}), 400
+
+    cenario = buscar_cenario(cenario_id)
+    if cenario is None:
+        return jsonify({"erro": "Cenário não encontrado."}), 404
+
+    if passo_idx < 0 or passo_idx >= len(cenario["fluxo"]):
+        return jsonify({"erro": "Índice de passo inválido."}), 400
+
+    cenario["fluxo"][passo_idx] = passo_calibrado
+    atualizar_cenario(cenario_id, cenario)
+    registrar_auditoria(g.operador["id"], f"calibrou o passo {passo_idx + 1} do cenário \"{cenario['titulo']}\"")
+    return jsonify({"sucesso": True, "mensagem": "Passo calibrado e salvo com sucesso."})
+

@@ -168,7 +168,8 @@ def salvar_estado_atendimento(at):
             encerrado_por_cliente = ?,
             dica_nivel = ?,
             dicas_usadas = ?,
-            pedidos_espera = ?
+            pedidos_espera = ?,
+            regras_json = ?
         WHERE id = ?
     """, (
         at["etapa_atual"],
@@ -187,6 +188,7 @@ def salvar_estado_atendimento(at):
         at["dica_nivel"],
         at["dicas_usadas"],
         at["pedidos_espera"],
+        json.dumps(at.get("regras", {}), ensure_ascii=False),
         at["db_id"]
     ))
 
