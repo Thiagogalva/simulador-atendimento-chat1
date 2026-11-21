@@ -1,13 +1,12 @@
 import unittest
 from repositories.cenario_repository import buscar_cenario, criar_cenario, listar_cenarios
-from repositories.operador_repository import definir_papel
-from tests.helpers import apagar_cenario, cliente_logado, iniciar, token_csrf
+from tests.helpers import apagar_cenario, cliente_logado, iniciar, token_csrf, tornar_supervisor
 
 
 class TestCalibradorRotasESimulacao(unittest.TestCase):
     def setUp(self):
         self.client, self.operador_id, self.usuario = cliente_logado(nome="Supervisor Calibrador")
-        definir_papel(self.operador_id, "supervisor")
+        tornar_supervisor(self.client)
 
     def test_acesso_calibrador(self):
         r = self.client.get("/supervisor/calibrador")

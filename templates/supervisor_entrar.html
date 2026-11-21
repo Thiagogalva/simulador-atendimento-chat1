@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block titulo %}Área do supervisor - Simulador{% endblock %}
+{% block conteudo %}
+<section class="cartao cartao-auth">
+    <h1>Área do supervisor</h1>
+
+    {% if desativado == "codigo" %}
+    <p class="alerta-aviso" role="alert">A área do supervisor está <b>desativada</b>: o servidor não tem um código configurado.</p>
+    <p>Quem administra o sistema deve definir a variável de ambiente <code>SUPERVISOR_CODIGO</code> (um código secreto
+       à sua escolha) e reiniciar a aplicação.</p>
+    {% elif desativado == "chave" %}
+    <p class="alerta-aviso" role="alert">A área do supervisor está <b>desativada</b> por segurança: falta definir a
+       variável de ambiente <code>SECRET_KEY</code> (um texto longo e aleatório).</p>
+    {% else %}
+    {% if erro %}<p class="alerta-erro" role="alert">{{ erro }}</p>{% endif %}
+    <form method="post" class="form-auth" autocomplete="off">
+        <label>Código do supervisor
+            <input type="password" name="codigo" autocomplete="off" required autofocus>
+        </label>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="botao-primario">Entrar</button>
+    </form>
+    {% endif %}
+</section>
+{% endblock %}

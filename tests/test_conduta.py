@@ -4,10 +4,9 @@ import unittest
 
 from data.base_atendimentos import BASE_ATENDIMENTOS
 from repositories.cenario_repository import buscar_cenario
-from repositories.operador_repository import definir_papel
 from services.cliente_service import LIMITE_ENCERRAMENTO, decidir_espera
 from services.conduta_service import pedido_de_espera, regras_efetivas
-from tests.helpers import cliente_logado, iniciar, post_form
+from tests.helpers import cliente_logado, iniciar, post_form, tornar_supervisor
 from tests.test_cenarios import criar_via_formulario
 
 PASSO0 = BASE_ATENDIMENTOS[0]["fluxo"][0]
@@ -153,7 +152,7 @@ class EsperaNaApi(unittest.TestCase):
 class RegraPorCenario(unittest.TestCase):
     def setUp(self):
         self.s, self.sid, _ = cliente_logado(nome="Chefe Conduta")
-        definir_papel(self.sid, "supervisor")
+        tornar_supervisor(self.s)
 
     def _novo(self, **mudancas):
         return criar_via_formulario(self.s, self, **mudancas)

@@ -6,13 +6,13 @@ from data.base_atendimentos import BASE_ATENDIMENTOS
 from database.connection import get_connection
 from repositories.operador_repository import buscar_operador_por_usuario
 from repositories.simulacao_repository import ranking
+from services.auth_service import chave_do_nome, limitador_nomes_novos
 from tests.helpers import (
-    SENHA,
+    _letras,
     cliente_logado,
     completar_simulacao,
     iniciar,
     liberar_todos,
-    novo_usuario,
     post_form,
 )
 
@@ -28,121 +28,134 @@ def app_client():
     return aplicacao.app.test_client()
 
 
-def cadastrar(client, usuario, nome="Fulano", senha=SENHA, confirmacao=None, **extra):
-    dados = {"usuario": usuario, "nome": nome, "senha": senha,
-             "confirmacao": senha if confirmacao is None else confirmacao}
-    dados.update(extra)
-    return client.post("/registro", data=dados)
+def nome_novo(base="Ana"):
+    return f"{base} {_letras()}"
 
 
-class Autenticacao(unittest.TestCase):
-    def test_rotas_exigem_login(self):
+def identificar(client, nome):
+    return client.post("/identificar", data={"nome": nome})
+
+
+class Identificacao(unittest.TestCase):
+    def test_rotas_exigem_o_nome(self):
         c = app_client()
-        for caminho in ("/", "/historico", "/ranking"):
+        for caminho in ("/", "/historico", "/ranking", "/simulacao"):
             r = c.get(caminho)
             self.assertEqual(r.status_code, 302, caminho)
-            self.assertIn("/login", r.headers["Location"])
-        for caminho in ("/responder", "/finalizar"):
+            self.assertIn("/identificar", r.headers["Location"])
+        for caminho in ("/responder", "/finalizar", "/dica", "/feedback"):
             r = c.post(caminho, json={})
             self.assertEqual(r.status_code, 401, caminho)
 
-    def test_paginas_publicas(self):
+    def test_login_e_cadastro_nao_existem_mais(self):
         c = app_client()
-        self.assertEqual(c.get("/login").status_code, 200)
-        self.assertEqual(c.get("/registro").status_code, 200)
+        for caminho in ("/login", "/registro", "/recuperar", "/senha", "/conta/codigo"):
+            self.assertIn(c.get(caminho).status_code, (302, 404), caminho)
+        self.assertEqual(c.get("/identificar").status_code, 200)
 
-    def test_registro_valido_ja_entra_logado(self):
-        c, _, _ = cliente_logado()
-        self.assertEqual(c.get("/").status_code, 200)  # tela de escolha do modo
+    def test_tela_de_identificacao_pede_so_o_nome(self):
+        html = app_client().get("/identificar").get_data(as_text=True)
+        self.assertIn('name="nome"', html)
+        self.assertNotIn("senha", html.lower())
+        self.assertNotIn('type="password"', html)
 
-    def test_usuario_duplicado_e_recusado(self):
-        usuario = novo_usuario()
-        cadastrar(app_client(), usuario)
-        r = cadastrar(app_client(), usuario, nome="Outro")
-        self.assertEqual(r.status_code, 400)
-        self.assertIn("já está em uso", r.get_data(as_text=True))
-
-    def test_usuario_e_normalizado_para_minusculas(self):
-        usuario = novo_usuario()
-        cadastrar(app_client(), usuario.upper())
-        self.assertIsNotNone(buscar_operador_por_usuario(usuario))
-        r = app_client().post("/login", data={"usuario": usuario.upper(), "senha": SENHA})
+    def test_informar_o_nome_libera_o_sistema(self):
+        c = app_client()
+        r = identificar(c, nome_novo("Maria Souza"))
         self.assertEqual(r.status_code, 302)
+        self.assertEqual(c.get("/").status_code, 200)
 
-    def test_validacoes_do_cadastro(self):
-        casos = [
-            dict(usuario="ab", nome="Fulano", senha=SENHA),                      # usuário curto
-            dict(usuario=novo_usuario(), nome="F", senha=SENHA),                 # nome curto
-            dict(usuario=novo_usuario(), nome="Fulano", senha="curta"),          # senha curta
-            dict(usuario=novo_usuario(), nome="Fulano", senha=SENHA, confirmacao="diferente1"),
-            dict(usuario="com espaco", nome="Fulano", senha=SENHA),              # caractere inválido
-        ]
-        for caso in casos:
-            r = cadastrar(app_client(), **caso)
-            self.assertEqual(r.status_code, 400, caso)
+    def test_mesmo_nome_escrito_de_formas_diferentes_e_a_mesma_pessoa(self):
+        base = nome_novo("João Silva")
+        a, b = app_client(), app_client()
+        identificar(a, base)
+        identificar(b, "  " + base.upper().replace(" ", "   ") + " ")
+        id_a = buscar_operador_por_usuario(chave_do_nome(base))["id"]
+        conn = get_connection()
+        total = conn.execute("SELECT COUNT(*) AS n FROM operadores WHERE usuario = ?", (chave_do_nome(base),)).fetchone()["n"]
+        conn.close()
+        self.assertEqual(total, 1)
+        self.assertIn(base, a.get("/historico").get_data(as_text=True))
+        self.assertIn(base, b.get("/historico").get_data(as_text=True))  # mostra o nome da 1ª vez
+        iniciar(a, "treino")
+        # o histórico/ranking do mesmo operador vale para as duas sessões
+        completar_simulacao(a, id_a, modo="treino")
+        a.post("/finalizar")
+        self.assertIn("Treino", b.get("/historico").get_data(as_text=True))
+
+    def test_acentos_nao_criam_outra_pessoa(self):
+        base = nome_novo("Jose")
+        identificar(app_client(), base)
+        identificar(app_client(), base.replace("Jose", "José"))
+        conn = get_connection()
+        n = conn.execute("SELECT COUNT(*) AS n FROM operadores WHERE usuario = ?", (chave_do_nome(base),)).fetchone()["n"]
+        conn.close()
+        self.assertEqual(n, 1)
+
+    def test_nomes_invalidos_sao_recusados(self):
+        for nome in ("", "   ", "A", "12345", "<script>alert(1)</script>", "Maria 2", "x" * 41, "=cmd|calc"):
+            r = identificar(app_client(), nome)
+            self.assertEqual(r.status_code, 400, repr(nome))
             self.assertIn("alerta-erro", r.get_data(as_text=True))
-        self.assertIsNone(buscar_operador_por_usuario("com espaco"))
+            self.assertIsNone(buscar_operador_por_usuario(chave_do_nome(nome)) if chave_do_nome(nome) else None, repr(nome))
 
-    def test_senha_e_guardada_com_hash(self):
-        _, _, usuario = cliente_logado()
-        operador = buscar_operador_por_usuario(usuario)
-        self.assertNotIn(SENHA, operador["senha_hash"])
-        self.assertTrue(operador["senha_hash"].startswith(("scrypt:", "pbkdf2:")))
+    def test_nome_com_acentos_hifen_e_apostrofo_e_aceito(self):
+        for base in ("José D'Ávila-Souza", "Ana Clara"):
+            self.assertEqual(identificar(app_client(), nome_novo(base)).status_code, 302, base)
 
-    def test_login_correto_e_incorreto(self):
-        _, _, usuario = cliente_logado()
-        ok = app_client().post("/login", data={"usuario": usuario, "senha": SENHA})
-        self.assertEqual(ok.status_code, 302)
+    def test_nome_bloqueado_pelo_supervisor_nao_entra(self):
+        c, oid, chave = cliente_logado()
+        conn = get_connection()
+        conn.execute("UPDATE operadores SET ativo = 0 WHERE id = ?", (oid,))
+        conn.commit()
+        conn.close()
+        self.assertEqual(c.get("/").status_code, 302)                       # a sessão aberta cai
+        r = identificar(app_client(), buscar_operador_por_usuario(chave)["nome"])
+        self.assertEqual(r.status_code, 403)
+        self.assertIn("bloqueado", r.get_data(as_text=True))
 
-        errada = app_client().post("/login", data={"usuario": usuario, "senha": "errada123"})
-        inexistente = app_client().post("/login", data={"usuario": "ninguem_aqui", "senha": "errada123"})
-        self.assertEqual((errada.status_code, inexistente.status_code), (401, 401))
-        # mesma mensagem: não revela se o usuário existe
-        self.assertIn("Usuário ou senha inválidos", errada.get_data(as_text=True))
-        self.assertIn("Usuário ou senha inválidos", inexistente.get_data(as_text=True))
-
-    def test_bloqueio_apos_varias_falhas(self):
-        _, _, usuario = cliente_logado()
-        c = app_client()
-        for _ in range(5):
-            self.assertEqual(c.post("/login", data={"usuario": usuario, "senha": "errada123"}).status_code, 401)
-        r = c.post("/login", data={"usuario": usuario, "senha": SENHA})  # mesmo com a senha certa
-        self.assertEqual(r.status_code, 429)
-
-    def test_codigo_de_convite(self):
-        with mock.patch.object(config, "CODIGO_CONVITE", "segredo-123"):
-            self.assertEqual(cadastrar(app_client(), novo_usuario()).status_code, 400)
-            self.assertEqual(cadastrar(app_client(), novo_usuario(), convite="errado").status_code, 400)
-            self.assertEqual(cadastrar(app_client(), novo_usuario(), convite="segredo-123").status_code, 302)
-
-    def test_logout(self):
+    def test_trocar_de_nome(self):
         c, _, _ = cliente_logado()
-        self.assertEqual(c.get("/sair").status_code, 405)   # só POST
-        self.assertEqual(c.post("/sair").status_code, 400)   # sem token CSRF
-        self.assertEqual(post_form(c, "/sair").status_code, 302)
+        self.assertEqual(c.post("/sair").status_code, 400)                   # exige CSRF
+        r = post_form(c, "/sair")
+        self.assertEqual(r.status_code, 302)
+        self.assertIn("/identificar", r.headers["Location"])
         self.assertEqual(c.get("/").status_code, 302)
 
-    def test_cookie_de_sessao_seguro(self):
-        usuario = novo_usuario()
-        r = cadastrar(app_client(), usuario)
-        cookie = r.headers.get("Set-Cookie", "")
-        self.assertIn("HttpOnly", cookie)
-        self.assertIn("SameSite=Lax", cookie)
-
-    def test_operador_removido_do_banco_invalida_a_sessao(self):
-        c, operador_id, _ = cliente_logado()
+    def test_sessao_com_operador_inexistente_volta_para_a_identificacao(self):
+        c, oid, _ = cliente_logado()
         conn = get_connection()
-        conn.execute("DELETE FROM operadores WHERE id = ?", (operador_id,))
+        conn.execute("DELETE FROM operadores WHERE id = ?", (oid,))
         conn.commit()
         conn.close()
         self.assertEqual(c.get("/").status_code, 302)
         self.assertEqual(c.post("/responder", json={"id": 0, "resposta": "texto"}).status_code, 401)
 
-    def test_nome_com_html_e_escapado(self):
-        c, _, _ = cliente_logado(nome="<script>alert(1)</script>")
-        html = c.get("/historico").get_data(as_text=True)
-        self.assertNotIn("<script>alert(1)</script>", html)
-        self.assertIn("&lt;script&gt;", html)
+    def test_limite_de_nomes_novos_por_ip(self):
+        chave = "nome|127.0.0.1"
+        limitador_nomes_novos.limpar(chave)
+        self.addCleanup(limitador_nomes_novos.limpar, chave)
+        with mock.patch.object(config, "NOMES_NOVOS_POR_HORA", 2):
+            self.assertEqual(identificar(app_client(), nome_novo("Um")).status_code, 302)
+            self.assertEqual(identificar(app_client(), nome_novo("Dois")).status_code, 302)
+            self.assertEqual(identificar(app_client(), nome_novo("Tres")).status_code, 429)
+            # quem já existe continua entrando normalmente
+            existente = nome_novo("Existente")
+            limitador_nomes_novos.limpar(chave)
+            identificar(app_client(), existente)
+            limitador_nomes_novos.registrar_falha(chave)
+            limitador_nomes_novos.registrar_falha(chave)
+            self.assertEqual(identificar(app_client(), existente).status_code, 302)
+
+    def test_cookie_de_sessao_e_seguro(self):
+        r = identificar(app_client(), nome_novo())
+        cookie = r.headers.get("Set-Cookie", "")
+        self.assertIn("HttpOnly", cookie)
+        self.assertIn("SameSite=Lax", cookie)
+
+    def test_nome_com_apostrofo_e_exibido_escapado(self):
+        c, _, _ = cliente_logado(nome="Ana O'Neil")
+        self.assertIn("O&#39;Neil", c.get("/historico").get_data(as_text=True))
 
 
 class HistoricoERanking(unittest.TestCase):

@@ -12,9 +12,9 @@ from repositories.cenario_repository import (
     definir_ativo_cenario,
     listar_cenarios,
 )
-from repositories.operador_repository import definir_papel, listar_auditoria
+from repositories.operador_repository import listar_auditoria
 from services.texto_service import PALAVRAS_CRITICAS
-from tests.helpers import apagar_cenario, cliente_logado, iniciar, post_form
+from tests.helpers import apagar_cenario, cliente_logado, iniciar, post_form, tornar_supervisor
 
 CLIENTE_1 = "Oi, minha tokenizacao de cartao falhou no aplicativo hoje."
 RESPOSTA_1 = "Entendo a situação. Vou verificar a tokenizacao do seu cartao e retorno com o prazo de solução."
@@ -28,7 +28,7 @@ def titulo_unico():
 
 def supervisor():
     c, oid, _ = cliente_logado(nome="Chefe Cenarios")
-    definir_papel(oid, "supervisor")
+    tornar_supervisor(c)
     return c, oid
 
 
@@ -67,7 +67,9 @@ class Permissoes(unittest.TestCase):
     def test_operador_comum_nao_acessa(self):
         c, _, _ = cliente_logado()
         for caminho in ("/supervisor/cenarios", "/supervisor/cenarios/novo", "/supervisor/cenarios/1"):
-            self.assertEqual(c.get(caminho).status_code, 403, caminho)
+            r = c.get(caminho)  # sem o código do supervisor: vai para a tela de entrada
+            self.assertEqual(r.status_code, 302, caminho)
+            self.assertIn("/supervisor/entrar", r.headers["Location"])
         self.assertEqual(post_form(c, "/supervisor/cenarios/novo", dados_cenario()).status_code, 403)
         self.assertEqual(post_form(c, "/supervisor/cenarios/1/ativo", {"ativo": "0"}).status_code, 403)
         self.assertTrue(buscar_cenario(1)["ativo"])

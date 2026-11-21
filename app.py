@@ -3,6 +3,7 @@ import time
 
 from config import (
     SECRET_KEY,
+    SECRET_KEY_PADRAO,
     TEMPO_LIMITE_CHAT,
     INTERVALO_ENTRE_CHATS,
     DEBUG,
@@ -12,10 +13,8 @@ from database.init_db import init_db
 from repositories.usuario_repository import garantir_usuario_no_banco
 from repositories.operador_repository import buscar_operador_por_id
 from routes.auth import bp as auth_bp
-from routes.conta import bp as conta_bp
 from routes.painel import bp as painel_bp
-from routes.supervisor import bp as supervisor_bp
-from services.auth_service import fingerprint_senha
+from routes.supervisor import bp as supervisor_bp, supervisor_liberado
 from routes.seguranca import csrf_valido, token_csrf
 from services.conduta_service import pedido_de_espera
 from services.calibrador_service import avaliar_resposta_processo
@@ -74,11 +73,10 @@ app.config.update(
     SESSION_COOKIE_SECURE=SESSION_COOKIE_SECURE,
 )
 app.register_blueprint(auth_bp)
-app.register_blueprint(conta_bp)
 app.register_blueprint(painel_bp)
 app.register_blueprint(supervisor_bp)
 
-if SECRET_KEY == "dev-only-troque-em-producao" and not DEBUG:
+if SECRET_KEY == SECRET_KEY_PADRAO and not DEBUG:
     app.logger.warning("SECRET_KEY padrão em uso. Defina a variável de ambiente SECRET_KEY em produção.")
 
 def _info_de_espera(at: dict) -> dict:
@@ -126,8 +124,7 @@ def resposta_api_atendimento(at, qtd_erros=0, erros_detalhados=None, avisos=None
         "servidor_agora": time.time()
     }
 
-ENDPOINTS_PUBLICOS = {"auth.login", "auth.registro", "auth.recuperar", "static"}
-ENDPOINTS_SENHA_TEMPORARIA = {"conta.senha", "auth.sair"}
+ENDPOINTS_PUBLICOS = {"auth.identificar", "static"}
 ENDPOINTS_JSON = {
     "responder", "dica", "feedback", "painel.finalizar", "painel.feedback_final",
     "supervisor.calibrador_extrair_ancoras", "supervisor.calibrador_simular_resposta", "supervisor.calibrador_salvar_passo"
@@ -135,8 +132,8 @@ ENDPOINTS_JSON = {
 
 
 @app.before_request
-def exigir_login():
-    """Todas as telas (exceto login/cadastro) exigem um operador autenticado e existente."""
+def exigir_identificacao():
+    """Sem login: basta ter informado o nome. Todas as telas (exceto /identificar) exigem isso."""
     if request.endpoint is None or request.endpoint in ENDPOINTS_PUBLICOS:
         return None
 
@@ -144,21 +141,15 @@ def exigir_login():
     if session.get("operador_id"):
         operador = buscar_operador_por_id(session["operador_id"])
 
-    # Conta removida/desativada ou senha trocada em outro lugar: a sessão deixa de valer.
-    if (operador is None or not operador["ativo"]
-            or session.get("sv") != fingerprint_senha(operador["senha_hash"])):
+    # Nome desconhecido (ex.: banco recriado) ou bloqueado por um supervisor: volta para a identificação.
+    if operador is None or not operador["ativo"]:
         session.clear()
         if request.endpoint in ENDPOINTS_JSON:
-            return jsonify({"erro": "Sessão expirada. Faça login novamente."}), 401
-        return redirect(url_for("auth.login"))
+            return jsonify({"erro": "Sessão expirada. Informe o seu nome novamente."}), 401
+        return redirect(url_for("auth.identificar"))
 
     g.operador = operador
-
-    # Senha temporária (definida por um supervisor): só libera depois de escolher a própria senha.
-    if operador["senha_temporaria"] and request.endpoint not in ENDPOINTS_SENHA_TEMPORARIA:
-        if request.endpoint in ENDPOINTS_JSON:
-            return jsonify({"erro": "Defina uma nova senha para continuar."}), 403
-        return redirect(url_for("conta.senha"))
+    g.e_supervisor = supervisor_liberado()
 
     if request.method == "POST" and request.endpoint not in ENDPOINTS_JSON and not csrf_valido():
         return "Requisição inválida (CSRF). Volte e tente novamente.", 400
@@ -167,7 +158,7 @@ def exigir_login():
 
 @app.errorhandler(403)
 def proibido(_erro):
-    if request.path in ("/responder", "/dica", "/feedback", "/finalizar", "/feedback-final"):
+    if request.is_json or request.path in ("/responder", "/dica", "/feedback", "/finalizar", "/feedback-final"):
         return jsonify({"erro": "Acesso negado."}), 403
     return render_template("erro.html", titulo="Acesso negado",
                            mensagem="Você não tem permissão para acessar esta página."), 403

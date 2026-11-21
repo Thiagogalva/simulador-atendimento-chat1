@@ -1,10 +1,6 @@
 from datetime import datetime, timezone
 
-import config
 from database.connection import get_connection, violacao_unicidade
-
-PAPEIS = ("operador", "supervisor")
-
 
 def _agora_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -13,25 +9,17 @@ def _agora_iso() -> str:
 def _linha_para_dict(row):
     if row is None:
         return None
-    papel = row["papel"]
     return {
         "id": row["id"],
-        "usuario": row["usuario"],
-        "nome": row["nome"],
-        "senha_hash": row["senha_hash"],
+        "usuario": row["usuario"],      # chave de identidade (nome normalizado)
+        "nome": row["nome"],            # nome de exibição, como foi digitado na primeira vez
         "criado_em": row["criado_em"],
-        "papel": papel,
         "ativo": bool(row["ativo"]),
-        "senha_temporaria": bool(row["senha_temporaria"]),
-        "recuperacao_hash": row["recuperacao_hash"],
-        # supervisores definidos por variável de ambiente nunca perdem o acesso
-        "supervisor_fixo": row["usuario"] in config.SUPERVISORES,
-        "e_supervisor": papel == "supervisor" or row["usuario"] in config.SUPERVISORES,
     }
 
 
-def criar_operador(usuario: str, nome: str, senha_hash: str, recuperacao_hash: str = None):
-    """Cria o operador. Retorna o id, ou None se o usuário já existe."""
+def criar_operador(usuario: str, nome: str, senha_hash: str = "", recuperacao_hash: str = None):
+    """Cria o operador. Retorna o id, ou None se a chave já existe. (senha_hash fica vazio: não há senha.)"""
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -68,6 +56,21 @@ def buscar_operador_por_id(operador_id):
         conn.close()
 
 
+def obter_ou_criar_por_nome(nome: str, chave: str):
+    """
+    Devolve (operador, criado). O mesmo nome (mesma chave) sempre volta ao mesmo operador,
+    com o mesmo histórico e a mesma posição no ranking.
+    """
+    existente = buscar_operador_por_usuario(chave)
+    if existente:
+        return existente, False
+
+    novo_id = criar_operador(chave, nome)
+    if novo_id is None:  # outra requisição criou o mesmo nome neste instante
+        return buscar_operador_por_usuario(chave), False
+    return buscar_operador_por_id(novo_id), True
+
+
 def _atualizar(sql: str, params: tuple):
     conn = get_connection()
     try:
@@ -77,37 +80,27 @@ def _atualizar(sql: str, params: tuple):
         conn.close()
 
 
-def atualizar_senha(operador_id: int, senha_hash: str, temporaria: bool = False):
-    _atualizar("UPDATE operadores SET senha_hash = ?, senha_temporaria = ? WHERE id = ?",
-               (senha_hash, 1 if temporaria else 0, operador_id))
-
-
-def salvar_recuperacao_hash(operador_id: int, recuperacao_hash):
-    _atualizar("UPDATE operadores SET recuperacao_hash = ? WHERE id = ?", (recuperacao_hash, operador_id))
-
-
 def definir_ativo(operador_id: int, ativo: bool):
-    _atualizar("UPDATE operadores SET ativo = ? WHERE id = ?", (1 if ativo else 0, operador_id))
-
-
-def definir_papel(operador_id: int, papel: str):
-    if papel not in PAPEIS:
-        raise ValueError("papel inválido")
-    _atualizar("UPDATE operadores SET papel = ? WHERE id = ?", (papel, operador_id))
+    conn = get_connection()
+    try:
+        conn.cursor().execute("UPDATE operadores SET ativo = ? WHERE id = ?", (1 if ativo else 0, operador_id))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def listar_operadores_com_estatisticas() -> list:
     conn = get_connection()
     try:
         linhas = conn.cursor().execute("""
-            SELECT o.id, o.usuario, o.nome, o.papel, o.ativo, o.criado_em,
+            SELECT o.id, o.usuario, o.nome, o.ativo, o.criado_em,
                    COUNT(CASE WHEN s.modo = 'avaliacao' THEN 1 END) AS avaliacoes,
                    AVG(CASE WHEN s.modo = 'avaliacao' THEN s.nota_geral END) AS media,
                    COUNT(CASE WHEN s.modo = 'treino' THEN 1 END) AS treinos,
                    MAX(s.finalizada_em) AS ultima
             FROM operadores o
             LEFT JOIN simulacoes s ON s.operador_id = o.id
-            GROUP BY o.id, o.usuario, o.nome, o.papel, o.ativo, o.criado_em
+            GROUP BY o.id, o.usuario, o.nome, o.ativo, o.criado_em
             ORDER BY o.nome ASC, o.id ASC
         """).fetchall()
     finally:
@@ -117,15 +110,12 @@ def listar_operadores_com_estatisticas() -> list:
         "id": r["id"],
         "usuario": r["usuario"],
         "nome": r["nome"],
-        "papel": r["papel"],
         "ativo": bool(r["ativo"]),
         "criado_em": r["criado_em"],
         "avaliacoes": int(r["avaliacoes"]),
         "media": float(r["media"]) if r["media"] is not None else None,
         "treinos": int(r["treinos"]),
         "ultima": r["ultima"],
-        "supervisor_fixo": r["usuario"] in config.SUPERVISORES,
-        "e_supervisor": r["papel"] == "supervisor" or r["usuario"] in config.SUPERVISORES,
     } for r in linhas]
 
 

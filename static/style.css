@@ -587,3 +587,6 @@ button:active {
 
 .linha-checkbox { flex-direction: row !important; align-items: center; gap: 8px !important; }
 .linha-checkbox input { width: auto; }
+
+.topbar-discreto { opacity: 0.6; font-size: 12px; }
+.topbar-discreto:hover { opacity: 1; }

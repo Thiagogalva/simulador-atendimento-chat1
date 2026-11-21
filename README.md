@@ -45,17 +45,28 @@ Ao iniciar, o operador escolhe o modo (`POST /iniciar`); recarregar a página **
 
 O navegador **nunca** recebe o roteiro nem as respostas esperadas; dicas e feedback são pedidos ao servidor, que só os entrega no treino.
 
-## Supervisores
+## Identificação e supervisor (sem login)
 
-Defina os primeiros supervisores em `SUPERVISORES=maria,joao` (logins). Depois eles podem promover outros em `/supervisor`:
+O sistema roda dentro de uma plataforma interna de aprendizado, então **não há login nem senha**: o operador só informa o **nome** no início (`/identificar`). O nome é usado no histórico e no ranking.
 
-- lista de operadores com média, avaliações e treinos; detalhe por operador;
-- redefinir senha (gera senha **temporária**, mostrada uma vez; o operador é obrigado a trocá-la);
-- desativar/reativar contas (perdem a sessão e saem do ranking) e promover/rebaixar;
-- exportar todas as simulações em CSV (com proteção contra injeção de fórmulas);
-- trilha de auditoria das ações do painel.
+- O mesmo nome, escrito de formas diferentes ("João Silva", "joao  SILVA"), é a mesma pessoa. Use sempre o mesmo nome para manter histórico e posição.
+- "Trocar nome" (no topo e no chat) encerra a identificação, útil em computador compartilhado.
+- Como não há autenticação, **qualquer pessoa pode digitar o nome de outra**. Em ambiente interno isso costuma ser aceitável; se o ranking precisar ser à prova de fraude, o ideal é a plataforma enviar a identidade já autenticada.
+- Limite de **nomes novos por IP por hora** (`NOMES_NOVOS_POR_HORA`, padrão 30) evita encher o ranking com nomes falsos.
 
-**Esqueci a senha:** no cadastro o operador recebe um **código de recuperação** (mostrado uma vez, só o hash é guardado) e usa `/recuperar` sem precisar de e-mail. Também pode gerar outro em *Conta*. Trocar ou redefinir a senha derruba as outras sessões.
+### Como acessar a área do supervisor
+
+A área do supervisor (`/supervisor`) é protegida por um **código secreto definido no servidor**, não por conta:
+
+1. Quem administra o sistema define duas variáveis de ambiente e reinicia a aplicação:
+   - `SUPERVISOR_CODIGO` = o código secreto (à sua escolha);
+   - `SECRET_KEY` = um texto longo e aleatório (sem ela a área fica desativada por segurança).
+2. O supervisor informa o nome normalmente, clica em **"Área do supervisor"** no topo e digita o código (`/supervisor/entrar`).
+3. A liberação dura `SUPERVISOR_SESSAO_HORAS` (padrão 8) e some ao trocar de nome ou clicar em "Sair do modo supervisor".
+
+Sem `SUPERVISOR_CODIGO` a área fica desativada. O código errado bloqueia temporariamente após 5 tentativas.
+
+No painel o supervisor vê operadores com média, avaliações e treinos; **bloqueia/desbloqueia um nome** (sai do ranking e perde a sessão); exporta CSV (com proteção contra injeção de fórmulas); gerencia cenários; e tem uma trilha de auditoria das ações.
 
 ## Cenários editáveis
 
@@ -91,23 +102,22 @@ pip install -r requirements-nlp.txt     # spaCy + modelo pt_core_news_md (roda o
 
 Os vetores só ajudam na **nota** (crédito parcial, com pareamento um-para-um para uma palavra não valer duas ideias). Eles são estáticos e podem aproximar palavras raras parecidas na forma; por isso o feedback não afirma nada com base só neles. `NLP_DESATIVAR=1` desliga a camada mesmo instalada.
 
-## Contas, histórico e ranking
+## Histórico e ranking
 
-- Cada operador tem **usuário + senha** (senha guardada com hash). Rotas protegidas: tudo, exceto `/login` e `/registro`.
 - Ao terminar uma simulação, o resultado é **salvo no histórico** (`/historico`): notas, evolução em gráfico e detalhe por atendimento. O cálculo é feito no servidor; o navegador não envia nota nenhuma.
-- `/ranking` ordena os operadores pela média das notas (geral, 30 dias ou 7 dias). Só o **nome de exibição** é público.
-- Proteções: bloqueio temporário após 5 logins errados, cookie de sessão `HttpOnly` + `SameSite=Lax` (+ `Secure` em HTTPS), mensagens de erro que não revelam se o usuário existe.
-- Para restringir quem pode se cadastrar, defina `CODIGO_CONVITE`.
+- `/ranking` ordena os operadores pela média das notas das **avaliações** (geral, 30 dias ou 7 dias). Só o nome de exibição aparece.
+- Proteções: cookie de sessão `HttpOnly` + `SameSite=Lax` (+ `Secure` em HTTPS) e proteção CSRF nos formulários.
 
 ## Configuração
 
 | Variável de ambiente | Padrão | Descrição |
 | --- | --- | --- |
-| `SECRET_KEY` | chave de desenvolvimento | **Defina em produção** (use um valor longo e aleatório). |
+| `SECRET_KEY` | chave de desenvolvimento | **Defina em produção** (valor longo e aleatório). Sem ela a área do supervisor fica desativada. |
+| `SUPERVISOR_CODIGO` | vazio | Código secreto que libera a área do supervisor. Sem ele a área fica desativada. |
+| `SUPERVISOR_SESSAO_HORAS` | `8` | Duração da liberação do supervisor. |
+| `NOMES_NOVOS_POR_HORA` | `30` | Nomes novos que um mesmo IP pode criar por hora. |
 | `DATABASE_URL` | vazio (usa SQLite) | URL do PostgreSQL, ex.: `postgresql://usuario:senha@host/banco?sslmode=require`. |
 | `DB_NAME` | `simulador.db` na pasta do projeto | Arquivo do SQLite (usado quando não há `DATABASE_URL`). |
-| `CODIGO_CONVITE` | vazio | Se definido, o cadastro exige este código. |
-| `SUPERVISORES` | vazio | Logins (separados por vírgula) que são sempre supervisores. |
 | `CENARIOS_POR_SIMULACAO` | `0` (todos) | Sorteia N cenários ativos por simulação. |
 | `NLP_DESATIVAR` | vazio | `1` desliga a camada opcional de spaCy. |
 | `SPACY_MODELO` | `pt_core_news_md` | Modelo spaCy a carregar (se instalado). |
@@ -140,15 +150,15 @@ Os testes ignoram `DATABASE_URL` de propósito (criam operadores e simulações)
 ## Estrutura
 
 ```
-app.py            app Flask: simulador (/ e /responder) e proteção de login
+app.py            app Flask: simulador (/ e /responder) e exigência do nome
 config.py         configurações
 data/             cenários iniciais (carregados no banco na primeira execução)
 database/         conexão (SQLite ou PostgreSQL) e criação/migração das tabelas
-routes/           login/recuperação (auth), conta, histórico/ranking/finalização (painel) e supervisor
+routes/           identificação por nome (auth), histórico/ranking/finalização (painel) e supervisor
 repositories/     acesso ao banco (operadores, simulações, atendimentos, mensagens, avaliações)
 services/         regras: texto, semântica, PLN opcional (spaCy), tom, cliente reativo, avaliação, tempo, dicas, cenários e feedback
 tests/            testes automatizados (python -m unittest discover -s tests -t .)
-templates/ static/  interface do chat, login, histórico e ranking
+templates/ static/  interface do chat, identificação, histórico e ranking
 ```
 
 Para criar ou editar atendimentos use o painel do supervisor (`/supervisor/cenarios`).

@@ -1,93 +1,50 @@
-"""Cadastro, senha e proteção contra tentativas em massa dos operadores."""
-import hashlib
+"""
+Identificação por nome (sem login nem senha) e proteção do código de supervisor.
+
+O sistema roda dentro de uma plataforma interna de aprendizado: o operador só informa o nome no início,
+e o ranking usa esse nome. Não há autenticação; o acesso do supervisor é protegido por um código
+secreto definido no servidor (SUPERVISOR_CODIGO).
+"""
 import re
-import secrets
 import threading
 import time
 
-from werkzeug.security import check_password_hash, generate_password_hash
+from services.texto_service import normalizar_texto
 
-REGEX_USUARIO = re.compile(r"^[a-z0-9._-]{3,30}$")
-SENHA_MINIMA = 8
-SENHA_MAXIMA = 128
+NOME_MIN, NOME_MAX = 2, 40
+_NOME_VALIDO = re.compile(r"^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ .'’-]*$")
 
 MAX_FALHAS = 5
 JANELA_SEGUNDOS = 300
 
-# Hash de uma senha qualquer: usado para gastar o mesmo tempo quando o usuário não existe.
-_HASH_FALSO = generate_password_hash("senha-falsa-para-igualar-tempo")
+
+def limpar_nome(nome: str) -> str:
+    return re.sub(r"\s+", " ", nome or "").strip()
 
 
-def normalizar_usuario(usuario: str) -> str:
-    return (usuario or "").strip().lower()
-
-
-def validar_cadastro(usuario: str, nome: str, senha: str, confirmacao: str) -> list:
+def validar_nome(nome: str):
+    """Retorna (nome_limpo, erros). Só letras, espaços, apóstrofo, hífen e ponto."""
+    limpo = limpar_nome(nome)
     erros = []
 
-    if not REGEX_USUARIO.match(usuario):
-        erros.append("Usuário deve ter de 3 a 30 caracteres: letras minúsculas, números, ponto, hífen ou sublinhado.")
+    if not (NOME_MIN <= len(limpo) <= NOME_MAX):
+        erros.append(f"Informe o seu nome (de {NOME_MIN} a {NOME_MAX} caracteres).")
+    elif not _NOME_VALIDO.match(limpo) or len(re.findall(r"[^\W\d_]", limpo)) < 2:
+        erros.append("Use apenas letras, espaços, hífen, apóstrofo e ponto no nome.")
 
-    nome = (nome or "").strip()
-    if not (2 <= len(nome) <= 40):
-        erros.append("O nome de exibição deve ter de 2 a 40 caracteres.")
-
-    senha = senha or ""
-    if not (SENHA_MINIMA <= len(senha) <= SENHA_MAXIMA):
-        erros.append(f"A senha deve ter entre {SENHA_MINIMA} e {SENHA_MAXIMA} caracteres.")
-    elif senha != confirmacao:
-        erros.append("A confirmação da senha não confere.")
-
-    return erros
+    return limpo, erros
 
 
-def validar_nova_senha(senha: str, confirmacao: str) -> list:
-    senha = senha or ""
-    if not (SENHA_MINIMA <= len(senha) <= SENHA_MAXIMA):
-        return [f"A senha deve ter entre {SENHA_MINIMA} e {SENHA_MAXIMA} caracteres."]
-    if senha != confirmacao:
-        return ["A confirmação da senha não confere."]
-    return []
-
-
-# Alfabeto sem caracteres ambíguos (0/O, 1/I/L): códigos fáceis de copiar à mão.
-_ALFABETO_CODIGO = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
-
-
-def gerar_codigo_recuperacao() -> str:
-    """16 caracteres (~80 bits) no formato XXXX-XXXX-XXXX-XXXX."""
-    letras = "".join(secrets.choice(_ALFABETO_CODIGO) for _ in range(16))
-    return "-".join(letras[i:i + 4] for i in range(0, 16, 4))
-
-
-def normalizar_codigo(codigo: str) -> str:
-    return re.sub(r"[^A-Z0-9]", "", (codigo or "").upper())
-
-
-def gerar_senha_temporaria() -> str:
-    letras = "".join(secrets.choice(_ALFABETO_CODIGO) for _ in range(12))
-    return "-".join(letras[i:i + 4] for i in range(0, 12, 4))
-
-
-def fingerprint_senha(senha_hash: str) -> str:
-    """Muda sempre que a senha muda; usado para derrubar sessões antigas."""
-    return hashlib.sha256((senha_hash or "").encode()).hexdigest()[:20]
-
-
-def gerar_hash(senha: str) -> str:
-    return generate_password_hash(senha)
-
-
-def verificar_senha(hash_salvo, senha: str) -> bool:
-    """Compara em tempo parecido exista ou não o usuário (hash_salvo None = não existe)."""
-    if hash_salvo is None:
-        check_password_hash(_HASH_FALSO, senha or "")
-        return False
-    return check_password_hash(hash_salvo, senha or "")
+def chave_do_nome(nome: str) -> str:
+    """
+    Identidade do operador: o mesmo nome escrito de formas diferentes ("João Silva", "joao  silva")
+    resulta na mesma chave e, portanto, no mesmo histórico e posição no ranking.
+    """
+    return re.sub(r"\s+", " ", normalizar_texto(nome)).strip()
 
 
 class LimitadorDeTentativas:
-    """Bloqueia temporariamente após várias falhas de login (em memória, por instância)."""
+    """Janela deslizante em memória (por instância): bloqueia após `max_falhas` ocorrências em `janela` s."""
 
     def __init__(self, max_falhas=MAX_FALHAS, janela=JANELA_SEGUNDOS):
         self.max_falhas = max_falhas
@@ -118,7 +75,7 @@ class LimitadorDeTentativas:
             self._falhas.pop(chave, None)
 
 
-limitador_login = LimitadorDeTentativas()
-
-
-limitador_recuperacao = LimitadorDeTentativas()
+# Tentativas erradas do código de supervisor (por IP).
+limitador_supervisor = LimitadorDeTentativas()
+# Criação de nomes novos (por IP): impede encher o ranking com milhares de nomes falsos.
+limitador_nomes_novos = LimitadorDeTentativas(max_falhas=30, janela=3600)

@@ -1,11 +1,12 @@
 import itertools
+import random
+import string
 import time
 import uuid
 
 from data.base_atendimentos import BASE_ATENDIMENTOS
 from database.connection import get_connection
 
-SENHA = "senhaforte1"
 _contador = itertools.count(1)
 
 
@@ -13,18 +14,33 @@ def novo_usuario() -> str:
     return f"op{next(_contador)}_{uuid.uuid4().hex[:6]}"
 
 
+def _letras(quantidade=6) -> str:
+    return "".join(random.choice(string.ascii_lowercase) for _ in range(quantidade))
+
+
 def cliente_logado(nome="Operador Teste", usuario=None):
-    """Cliente de teste já cadastrado e autenticado. Retorna (client, operador_id, usuario)."""
+    """
+    Cliente de teste já identificado pelo nome. Cada chamada acrescenta letras aleatórias ao nome
+    para que seja SEMPRE um operador novo (o mesmo nome reaproveitaria o mesmo operador).
+    Retorna (client, operador_id, chave_de_identidade).
+    """
     import app as aplicacao
     from repositories.operador_repository import buscar_operador_por_usuario
+    from services.auth_service import chave_do_nome
 
-    usuario = usuario or novo_usuario()
+    nome_unico = f"{nome} {_letras()}"
     client = aplicacao.app.test_client()
-    resposta = client.post("/registro", data={
-        "usuario": usuario, "nome": nome, "senha": SENHA, "confirmacao": SENHA,
-    })
+    resposta = client.post("/identificar", data={"nome": nome_unico})
     assert resposta.status_code == 302, resposta.get_data(as_text=True)
-    return client, buscar_operador_por_usuario(usuario)["id"], usuario
+    chave = chave_do_nome(nome_unico)
+    return client, buscar_operador_por_usuario(chave)["id"], chave
+
+
+def tornar_supervisor(client):
+    """Libera a área do supervisor nesta sessão (o fluxo do código é testado à parte)."""
+    with client.session_transaction() as s:
+        s["supervisor_ate"] = time.time() + 3600
+    return client
 
 
 def token_csrf(client) -> str:

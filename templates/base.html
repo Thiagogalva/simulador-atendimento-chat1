@@ -14,11 +14,15 @@
         <a href="{{ url_for('index') }}">Nova simulação</a>
         <a href="{{ url_for('painel.historico') }}">Meu histórico</a>
         <a href="{{ url_for('painel.ranking_view') }}">Ranking</a>
-        {% if g.operador.e_supervisor %}<a href="{{ url_for('supervisor.painel') }}">Supervisor</a>{% endif %}
-        <a href="{{ url_for('conta.senha') }}" class="topbar-usuario">{{ g.operador.nome }}</a>
+        {% if g.e_supervisor %}
+        <a href="{{ url_for('supervisor.painel') }}">Supervisor</a>
+        {% else %}
+        <a href="{{ url_for('supervisor.entrar') }}" class="topbar-discreto">Área do supervisor</a>
+        {% endif %}
+        <span class="topbar-usuario">{{ g.operador.nome }}</span>
         <form method="post" action="{{ url_for('auth.sair') }}" class="form-inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="link-botao">Sair</button>
+            <button type="submit" class="link-botao">Trocar nome</button>
         </form>
     </nav>
 </header>

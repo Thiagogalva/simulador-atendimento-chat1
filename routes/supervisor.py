@@ -1,10 +1,13 @@
 import csv
+import hmac
 import io
+import time
 from functools import wraps
 from statistics import mean
 
 from flask import Blueprint, Response, abort, flash, g, redirect, render_template, request, session, url_for, jsonify
 
+import config
 from services.calibrador_service import extrair_ancoras, simular_reacao_especialista
 
 from repositories.cenario_repository import (
@@ -17,30 +20,78 @@ from repositories.cenario_repository import (
     proxima_ordem,
 )
 from repositories.operador_repository import (
-    PAPEIS,
-    atualizar_senha,
     buscar_operador_por_id,
     definir_ativo,
-    definir_papel,
     listar_auditoria,
     listar_operadores_com_estatisticas,
     registrar_auditoria,
 )
 from repositories.simulacao_repository import listar_simulacoes_do_operador, listar_todas_as_simulacoes
-from services.auth_service import gerar_hash, gerar_senha_temporaria
+from services.auth_service import limitador_supervisor
 from services.cenario_service import MAX_PASSOS, validar_cenario
 from services.conduta_service import REGRAS_PADRAO
 
 bp = Blueprint("supervisor", __name__, url_prefix="/supervisor")
 
 
+def supervisor_liberado() -> bool:
+    """
+    A área do supervisor só abre com o código secreto do servidor (SUPERVISOR_CODIGO).
+    Como o desbloqueio fica no cookie assinado, recusamos se a SECRET_KEY for a padrão (cookie forjável).
+    """
+    if not config.SUPERVISOR_CODIGO:
+        return False
+    if config.SECRET_KEY == config.SECRET_KEY_PADRAO:
+        return False
+    ate = session.get("supervisor_ate")
+    return isinstance(ate, (int, float)) and ate > time.time()
+
+
 def requer_supervisor(funcao):
     @wraps(funcao)
     def protegida(*args, **kwargs):
-        if not g.operador["e_supervisor"]:
+        if not supervisor_liberado():
+            if request.method == "GET" and not request.is_json:
+                return redirect(url_for("supervisor.entrar"))
             abort(403)
         return funcao(*args, **kwargs)
     return protegida
+
+
+@bp.route("/entrar", methods=["GET", "POST"])
+def entrar():
+    """Libera a área do supervisor com o código secreto definido no servidor."""
+    if not config.SUPERVISOR_CODIGO:
+        return render_template("supervisor_entrar.html", desativado="codigo", erro=None), 503
+    if config.SECRET_KEY == config.SECRET_KEY_PADRAO:
+        return render_template("supervisor_entrar.html", desativado="chave", erro=None), 503
+
+    if supervisor_liberado() and request.method == "GET":
+        return redirect(url_for("supervisor.painel"))
+
+    erro, status = None, 200
+    if request.method == "POST":
+        origem = f"sup|{request.remote_addr}"
+        enviado = request.form.get("codigo", "")
+
+        if limitador_supervisor.bloqueado(origem):
+            erro, status = "Muitas tentativas. Aguarde alguns minutos e tente novamente.", 429
+        elif hmac.compare_digest(enviado.encode(), config.SUPERVISOR_CODIGO.encode()):
+            limitador_supervisor.limpar(origem)
+            session["supervisor_ate"] = time.time() + config.SUPERVISOR_SESSAO_HORAS * 3600
+            registrar_auditoria(g.operador["id"], "entrou na área do supervisor")
+            return redirect(url_for("supervisor.painel"))
+        else:
+            limitador_supervisor.registrar_falha(origem)
+            erro, status = "Código incorreto.", 401
+
+    return render_template("supervisor_entrar.html", desativado=None, erro=erro), status
+
+
+@bp.route("/sair", methods=["POST"])
+def sair_modo():
+    session.pop("supervisor_ate", None)
+    return redirect(url_for("index"))
 
 
 def _alvo_ou_404(operador_id: int):
@@ -73,7 +124,6 @@ def painel():
         operadores=operadores,
         resumo=resumo,
         auditoria=listar_auditoria(20),
-        senha_gerada=session.pop("senha_temporaria_gerada", None),
         meu_id=g.operador["id"],
     )
 
@@ -93,58 +143,18 @@ def detalhe(operador_id):
     )
 
 
-@bp.route("/operadores/<int:operador_id>/senha", methods=["POST"])
-@requer_supervisor
-def redefinir_senha(operador_id):
-    alvo = _alvo_ou_404(operador_id)
-    recusa = _recusar_se_for_si_mesmo(alvo, "Para trocar a sua própria senha use a página Conta.")
-    if recusa:
-        return recusa
-
-    temporaria = gerar_senha_temporaria()
-    atualizar_senha(alvo["id"], gerar_hash(temporaria), temporaria=True)
-    registrar_auditoria(g.operador["id"], "redefiniu a senha", alvo["id"])
-    session["senha_temporaria_gerada"] = {"nome": alvo["nome"], "usuario": alvo["usuario"], "senha": temporaria}
-    return redirect(url_for("supervisor.painel"))
-
-
 @bp.route("/operadores/<int:operador_id>/ativo", methods=["POST"])
 @requer_supervisor
 def alterar_ativo(operador_id):
     alvo = _alvo_ou_404(operador_id)
-    recusa = _recusar_se_for_si_mesmo(alvo, "Você não pode desativar a sua própria conta.")
+    recusa = _recusar_se_for_si_mesmo(alvo, "Você não pode bloquear o seu próprio nome.")
     if recusa:
         return recusa
 
     ativo = request.form.get("ativo") == "1"
-    if not ativo and alvo["supervisor_fixo"]:
-        flash("Este supervisor é definido na configuração do sistema e não pode ser desativado aqui.", "erro")
-        return redirect(url_for("supervisor.painel"))
-
     definir_ativo(alvo["id"], ativo)
-    registrar_auditoria(g.operador["id"], "reativou a conta" if ativo else "desativou a conta", alvo["id"])
-    flash(f"Conta de {alvo['nome']} {'reativada' if ativo else 'desativada'}.", "ok")
-    return redirect(url_for("supervisor.painel"))
-
-
-@bp.route("/operadores/<int:operador_id>/papel", methods=["POST"])
-@requer_supervisor
-def alterar_papel(operador_id):
-    alvo = _alvo_ou_404(operador_id)
-    recusa = _recusar_se_for_si_mesmo(alvo, "Você não pode alterar o seu próprio papel.")
-    if recusa:
-        return recusa
-
-    papel = request.form.get("papel", "")
-    if papel not in PAPEIS:
-        abort(400)
-    if alvo["supervisor_fixo"]:
-        flash("Este supervisor é definido na configuração do sistema e não pode ser rebaixado aqui.", "erro")
-        return redirect(url_for("supervisor.painel"))
-
-    definir_papel(alvo["id"], papel)
-    registrar_auditoria(g.operador["id"], f"definiu o papel como {papel}", alvo["id"])
-    flash(f"{alvo['nome']} agora é {papel}.", "ok")
+    registrar_auditoria(g.operador["id"], "desbloqueou o nome" if ativo else "bloqueou o nome", alvo["id"])
+    flash(f"Nome de {alvo['nome']} {'desbloqueado' if ativo else 'bloqueado'}.", "ok")
     return redirect(url_for("supervisor.painel"))
 
 

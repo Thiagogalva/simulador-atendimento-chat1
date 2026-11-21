@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block titulo %}Identificação - Simulador{% endblock %}
+{% block conteudo %}
+<section class="cartao cartao-auth">
+    <h1>Simulador de Atendimento</h1>
+    <p>Informe o seu nome para começar. Ele aparece no histórico e no ranking.</p>
+    {% if erros %}
+    <ul class="alerta-erro" role="alert">{% for e in erros %}<li>{{ e }}</li>{% endfor %}</ul>
+    {% endif %}
+    <form method="post" class="form-auth" autocomplete="name">
+        <label>Seu nome
+            <input type="text" name="nome" value="{{ nome }}" maxlength="40" autocomplete="name" required autofocus>
+        </label>
+        <button type="submit" class="botao-primario">Continuar</button>
+    </form>
+    <p class="texto-auxiliar">Use sempre o mesmo nome para manter o seu histórico e a sua posição no ranking.</p>
+</section>
+{% endblock %}
